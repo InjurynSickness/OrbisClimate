@@ -1,0 +1,37 @@
+# OrbisClimate Configuration
+# A realistic wind system that responds to weather conditions
+
+wind:
+  # Enable or disable the wind system entirely
+  enabled: true
+
+  # How many blocks to check above a player to determine if they're indoors
+  # Higher values = better detection of high ceilings but more performance cost
+  # Default: 50 blocks (suitable for large buildings)
+  interior_height_distance: 50
+
+  # Maximum number of particles to show per player during wind events
+  # Higher values = more visual effect but may cause lag
+  max_particles: 100
+
+  # How far around the player to spawn wind particles (in blocks)
+  particle_range: 10.0
+
+  # Wind event chances (percentage chance every 30 seconds)
+  chances:
+    clear_weather: 10.0      # 10% chance during clear weather
+    rain: 25.0               # 25% chance during rain
+    thunderstorm: 100.0      # 100% chance during thunderstorms
+
+  # How long wind events last (in seconds)
+  duration:
+    min_seconds: 30          # Minimum duration
+    max_seconds: 120         # Maximum duration
+
+# Wind Event System:
+# - Every 30 seconds, the plugin rolls for a wind event based on current weather
+# - Clear weather: 10% chance of light wind (10% intensity)
+# - Rain: 25% chance of moderate wind (25% intensity)
+# - Thunderstorm: 100% chance of strong wind (100% intensity)
+# - Wind events last 30-120 seconds with particle effects and sounds
+# - Only affects players who are outdoors (no solid ceiling within 50 blocks)

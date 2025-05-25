@@ -1,0 +1,21 @@
+name: OrbisClimate
+version: '1.0-SNAPSHOT'
+main: com.orbismc.orbisClimate.OrbisClimate
+api-version: '1.21'
+authors: [ InjurynSickness ]
+description: A realistic wind system plugin for Minecraft
+
+commands:
+  wind:
+    description: OrbisClimate wind commands
+    usage: /wind [reload|info] or /disasters [reload|info]
+    aliases: [disasters]
+    permission: orbisclimate.use
+
+permissions:
+  orbisclimate.use:
+    description: Allows basic OrbisClimate commands
+    default: true
+  orbisclimate.admin:
+    description: Allows administrative OrbisClimate commands
+    default: op
