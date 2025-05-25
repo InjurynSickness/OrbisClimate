@@ -1,5 +1,7 @@
 package com.orbismc.orbisClimate;
 
+import me.casperge.realisticseasons.api.objects.Date;
+import me.casperge.realisticseasons.api.objects.Season;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -30,6 +32,7 @@ public class WindCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(ChatColor.YELLOW + "/wind info " + ChatColor.WHITE + "- Show wind information");
             sender.sendMessage(ChatColor.YELLOW + "/wind forecast " + ChatColor.WHITE + "- Show weather forecast");
             sender.sendMessage(ChatColor.YELLOW + "/wind regenerate " + ChatColor.WHITE + "- Regenerate today's forecast");
+            sender.sendMessage(ChatColor.YELLOW + "/wind status " + ChatColor.WHITE + "- Show integration status");
             return true;
         }
 
@@ -81,6 +84,10 @@ public class WindCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(ChatColor.GREEN + "Weather forecast regenerated for " + regenPlayer.getWorld().getName() + "!");
                 break;
 
+            case "status":
+                showIntegrationStatus(sender);
+                break;
+
             default:
                 sender.sendMessage(ChatColor.RED + "Unknown command! Use /wind for help.");
                 break;
@@ -96,13 +103,32 @@ public class WindCommand implements CommandExecutor, TabCompleter {
         WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(player.getWorld());
         player.sendMessage(ChatColor.AQUA + "Current Weather: " + ChatColor.WHITE + currentWeather.getDisplayName());
 
+        // Show season information if RealisticSeasons is enabled
+        if (weatherForecast.isRealisticSeasonsEnabled()) {
+            Season currentSeason = weatherForecast.getCurrentSeason(player.getWorld());
+            Date currentDate = weatherForecast.getCurrentDate(player.getWorld());
+
+            if (currentSeason != null) {
+                player.sendMessage(ChatColor.AQUA + "Current Season: " + ChatColor.WHITE +
+                        currentSeason.toString().toLowerCase());
+            }
+
+            if (currentDate != null) {
+                player.sendMessage(ChatColor.AQUA + "Current Date: " + ChatColor.WHITE +
+                        currentDate.getMonth() + "/" + currentDate.getDay() + "/" + currentDate.getYear());
+            }
+        }
+
         // Wind chances based on current weather
         String windChance;
         if (currentWeather == WeatherForecast.WeatherType.THUNDERSTORM) {
             windChance = "100% wind chance";
         } else if (currentWeather == WeatherForecast.WeatherType.HEAVY_RAIN ||
-                currentWeather == WeatherForecast.WeatherType.LIGHT_RAIN) {
+                currentWeather == WeatherForecast.WeatherType.LIGHT_RAIN ||
+                currentWeather == WeatherForecast.WeatherType.BLIZZARD) {
             windChance = "25% wind chance";
+        } else if (currentWeather == WeatherForecast.WeatherType.SNOW) {
+            windChance = "15% wind chance";
         } else {
             windChance = "10% wind chance";
         }
@@ -133,21 +159,77 @@ public class WindCommand implements CommandExecutor, TabCompleter {
             return;
         }
 
-        player.sendMessage(ChatColor.GOLD + "=== Weather Forecast - Day " + forecast.getDayNumber() + " ===");
-        player.sendMessage(ChatColor.YELLOW + "Morning (6AM-12PM): " + ChatColor.WHITE + forecast.getMorningWeather().getDisplayName());
-        player.sendMessage(ChatColor.YELLOW + "Afternoon (12PM-6PM): " + ChatColor.WHITE + forecast.getAfternoonWeather().getDisplayName());
-        player.sendMessage(ChatColor.YELLOW + "Evening (6PM-12AM): " + ChatColor.WHITE + forecast.getEveningWeather().getDisplayName());
-        player.sendMessage(ChatColor.YELLOW + "Night (12AM-6AM): " + ChatColor.WHITE + forecast.getNightWeather().getDisplayName());
+        // Build header with date and season info
+        String headerText = "=== Weather Forecast";
+
+        if (weatherForecast.isRealisticSeasonsEnabled() && forecast.getDate() != null) {
+            Date date = forecast.getDate();
+            String dateStr = date.getMonth() + "/" + date.getDay() + "/" + date.getYear();
+            headerText += " - " + dateStr;
+
+            if (forecast.getSeason() != null) {
+                headerText += " (" + forecast.getSeason().toString().toLowerCase() + ")";
+            }
+        }
+
+        headerText += " ===";
+        player.sendMessage(ChatColor.GOLD + headerText);
+
+        // Show forecast periods
+        player.sendMessage(ChatColor.YELLOW + "Morning (6AM-12PM): " + ChatColor.WHITE +
+                forecast.getMorningWeather().getDisplayName());
+        player.sendMessage(ChatColor.YELLOW + "Afternoon (12PM-6PM): " + ChatColor.WHITE +
+                forecast.getAfternoonWeather().getDisplayName());
+        player.sendMessage(ChatColor.YELLOW + "Evening (6PM-12AM): " + ChatColor.WHITE +
+                forecast.getEveningWeather().getDisplayName());
+        player.sendMessage(ChatColor.YELLOW + "Night (12AM-6AM): " + ChatColor.WHITE +
+                forecast.getNightWeather().getDisplayName());
 
         // Show current weather
         WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(player.getWorld());
         player.sendMessage(ChatColor.AQUA + "Current: " + ChatColor.WHITE + currentWeather.getDisplayName());
     }
 
+    private void showIntegrationStatus(CommandSender sender) {
+        sender.sendMessage(ChatColor.GOLD + "=== OrbisClimate Integration Status ===");
+
+        if (weatherForecast.isRealisticSeasonsEnabled()) {
+            sender.sendMessage(ChatColor.GREEN + "✓ RealisticSeasons: " + ChatColor.WHITE + "Connected");
+            sender.sendMessage(ChatColor.GRAY + "  Using RealisticSeasons time and seasons for weather generation");
+        } else {
+            sender.sendMessage(ChatColor.YELLOW + "⚠ RealisticSeasons: " + ChatColor.WHITE + "Not Available");
+            sender.sendMessage(ChatColor.GRAY + "  Using vanilla Minecraft time system");
+        }
+
+        // Show if player is a player to give world-specific info
+        if (sender instanceof Player) {
+            Player player = (Player) sender;
+
+            if (weatherForecast.isRealisticSeasonsEnabled()) {
+                Season currentSeason = weatherForecast.getCurrentSeason(player.getWorld());
+                Date currentDate = weatherForecast.getCurrentDate(player.getWorld());
+
+                sender.sendMessage(ChatColor.AQUA + "World Status:");
+
+                if (currentSeason != null) {
+                    sender.sendMessage(ChatColor.WHITE + "  Season: " + currentSeason.toString().toLowerCase());
+                }
+
+                if (currentDate != null) {
+                    sender.sendMessage(ChatColor.WHITE + "  Date: " +
+                            currentDate.getMonth() + "/" + currentDate.getDay() + "/" + currentDate.getYear());
+                }
+
+                WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(player.getWorld());
+                sender.sendMessage(ChatColor.WHITE + "  Weather: " + currentWeather.getDisplayName());
+            }
+        }
+    }
+
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return Arrays.asList("reload", "info", "forecast", "regenerate");
+            return Arrays.asList("reload", "info", "forecast", "regenerate", "status");
         }
         return null;
     }

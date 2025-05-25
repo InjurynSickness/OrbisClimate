@@ -68,5 +68,14 @@
             <version>1.21.1-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
+
+        <!-- RealisticSeasons API - from libs folder -->
+        <dependency>
+            <groupId>me.casperge</groupId>
+            <artifactId>realisticseasons</artifactId>
+            <version>11.6.7</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/libs/RealisticSeasons-11.6.7.jar</systemPath>
+        </dependency>
     </dependencies>
 </project>

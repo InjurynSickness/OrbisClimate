@@ -1,5 +1,6 @@
 package com.orbismc.orbisClimate;
 
+import me.casperge.realisticseasons.api.objects.Season;
 import org.bukkit.Bukkit;
 import org.bukkit.Color;
 import org.bukkit.Location;
@@ -31,6 +32,7 @@ public class WindManager {
     // Wind chance configuration
     private double clearWeatherChance;
     private double rainChance;
+    private double snowChance;
     private double thunderstormChance;
 
     // Wind event duration
@@ -65,6 +67,7 @@ public class WindManager {
         // Wind event chances (percentage)
         clearWeatherChance = plugin.getConfig().getDouble("wind.chances.clear_weather", 10.0);
         rainChance = plugin.getConfig().getDouble("wind.chances.rain", 25.0);
+        snowChance = plugin.getConfig().getDouble("wind.chances.snow", 15.0);
         thunderstormChance = plugin.getConfig().getDouble("wind.chances.thunderstorm", 100.0);
 
         // Wind duration (in seconds)
@@ -128,9 +131,9 @@ public class WindManager {
             return; // No wind event active
         }
 
-        // Update wind direction occasionally
+        // Update wind direction occasionally - seasonal influence
         if (random.nextInt(200) == 0) { // Change direction every ~10 seconds
-            windData.updateDirection(random);
+            windData.updateDirection(random, weatherForecast.getCurrentSeason(world));
         }
 
         // Process players
@@ -152,51 +155,131 @@ public class WindManager {
             int duration = minWindDuration + random.nextInt(maxWindDuration - minWindDuration + 1);
             double intensity = getWindIntensityForWeather(world);
 
+            // Seasonal duration modifiers
+            Season currentSeason = weatherForecast.getCurrentSeason(world);
+            if (currentSeason != null) {
+                switch (currentSeason) {
+                    case WINTER:
+                        duration = (int) (duration * 1.3); // 30% longer in winter
+                        break;
+                    case SPRING:
+                        duration = (int) (duration * 1.1); // 10% longer in spring
+                        break;
+                    case AUTUMN:
+                        duration = (int) (duration * 1.2); // 20% longer in autumn
+                        break;
+                    // Summer keeps default duration
+                }
+            }
+
             windData.startWindEvent(duration * 20, intensity); // Convert to ticks
 
             // Notify players in the world (only those with permission)
             String weatherType = getWeatherName(world);
+            String seasonStr = currentSeason != null ? " (" + currentSeason.toString().toLowerCase() + ")" : "";
+
             for (Player player : world.getPlayers()) {
                 if (player.hasPermission("orbisclimate.notifications")) {
                     player.sendMessage("§6[OrbisClimate] §aWind event started! " +
-                            "§7(" + weatherType + " - " + duration + "s)");
+                            "§7(" + weatherType + seasonStr + " - " + duration + "s)");
                 }
             }
 
             plugin.getLogger().info("Wind event started in " + world.getName() +
-                    " (" + weatherType + ") for " + duration + " seconds");
+                    " (" + weatherType + seasonStr + ") for " + duration + " seconds");
         }
     }
 
     private double getWindChanceForWeather(World world) {
         WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(world);
+        Season currentSeason = weatherForecast.getCurrentSeason(world);
 
+        double baseChance;
         switch (currentWeather) {
             case THUNDERSTORM:
-                return thunderstormChance;
+                baseChance = thunderstormChance;
+                break;
             case HEAVY_RAIN:
             case LIGHT_RAIN:
-                return rainChance;
+                baseChance = rainChance;
+                break;
+            case SNOW:
+                baseChance = snowChance;
+                break;
+            case BLIZZARD:
+                baseChance = thunderstormChance * 0.8; // Slightly less than thunderstorm
+                break;
             case CLEAR:
             default:
-                return clearWeatherChance;
+                baseChance = clearWeatherChance;
+                break;
         }
+
+        // Seasonal modifiers
+        if (currentSeason != null) {
+            switch (currentSeason) {
+                case WINTER:
+                    baseChance *= 1.4; // 40% more wind in winter
+                    break;
+                case SPRING:
+                    baseChance *= 1.2; // 20% more wind in spring
+                    break;
+                case AUTUMN:
+                    baseChance *= 1.3; // 30% more wind in autumn
+                    break;
+                case SUMMER:
+                    baseChance *= 0.8; // 20% less wind in summer
+                    break;
+            }
+        }
+
+        return Math.min(100.0, baseChance); // Cap at 100%
     }
 
     private double getWindIntensityForWeather(World world) {
         WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(world);
+        Season currentSeason = weatherForecast.getCurrentSeason(world);
 
+        double baseIntensity;
         switch (currentWeather) {
             case THUNDERSTORM:
-                return 1.0; // 100% intensity
+                baseIntensity = 1.0; // 100% intensity
+                break;
+            case BLIZZARD:
+                baseIntensity = 0.9; // 90% intensity
+                break;
             case HEAVY_RAIN:
-                return 0.4; // 40% intensity for heavy rain
+                baseIntensity = 0.4; // 40% intensity for heavy rain
+                break;
             case LIGHT_RAIN:
-                return 0.25; // 25% intensity for light rain
+                baseIntensity = 0.25; // 25% intensity for light rain
+                break;
+            case SNOW:
+                baseIntensity = 0.2; // 20% intensity for light snow
+                break;
             case CLEAR:
             default:
-                return 0.1; // 10% intensity
+                baseIntensity = 0.1; // 10% intensity
+                break;
         }
+
+        // Seasonal intensity modifiers
+        if (currentSeason != null) {
+            switch (currentSeason) {
+                case WINTER:
+                    baseIntensity *= 1.2; // 20% more intense in winter
+                    break;
+                case SPRING:
+                    baseIntensity *= 1.1; // 10% more intense in spring
+                    break;
+                case AUTUMN:
+                    baseIntensity *= 1.15; // 15% more intense in autumn
+                    break;
+                // Summer keeps base intensity
+            }
+        }
+
+        return Math.min(1.0, baseIntensity); // Cap at 100%
     }
 
     private String getWeatherName(World world) {
@@ -232,17 +315,41 @@ public class WindManager {
         // Create particle effects
         createWindParticles(player, windDirection, force);
 
-        // Play wind sounds occasionally
+        // Play wind sounds occasionally with seasonal variation
         if (random.nextInt(60) == 0) { // Every ~3 seconds
-            float volume = (float) (force * 0.3);
-            float pitch = 0.5f + (float) (force * 0.3);
-            player.playSound(loc, Sound.WEATHER_RAIN, volume, pitch);
+            playSeasonalWindSound(player, force);
         }
+    }
+
+    private void playSeasonalWindSound(Player player, double force) {
+        Season currentSeason = weatherForecast.getCurrentSeason(player.getWorld());
+        WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(player.getWorld());
+
+        Location loc = player.getLocation();
+        float volume = (float) (force * 0.3);
+        float pitch = 0.5f + (float) (force * 0.3);
+
+        // Choose sound based on season and weather
+        Sound windSound = Sound.WEATHER_RAIN; // Default
+
+        if (currentWeather == WeatherForecast.WeatherType.SNOW || currentWeather == WeatherForecast.WeatherType.BLIZZARD) {
+            // Snow/winter wind sounds
+            windSound = Sound.WEATHER_RAIN;
+            pitch *= 0.8f; // Lower pitch for winter winds
+        } else if (currentSeason == Season.WINTER) {
+            pitch *= 0.9f; // Slightly lower for winter
+        } else if (currentSeason == Season.SUMMER) {
+            pitch *= 1.1f; // Slightly higher for summer
+        }
+
+        player.playSound(loc, windSound, volume, pitch);
     }
 
     private void createWindParticles(Player player, Vector windDirection, double force) {
         Location loc = player.getLocation();
         Biome biome = loc.getBlock().getBiome();
+        Season currentSeason = weatherForecast.getCurrentSeason(player.getWorld());
+        WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(player.getWorld());
 
         // Performance optimization: reduce particles based on nearby player count
         int nearbyPlayers = (int) player.getWorld().getPlayers().stream()
@@ -252,15 +359,29 @@ public class WindManager {
         // Reduce particle count if many players are nearby
         double performanceMultiplier = Math.max(0.3, 1.0 / Math.max(1, nearbyPlayers - 1));
 
+        // Seasonal particle count modifiers
+        double seasonalMultiplier = 1.0;
+        if (currentSeason != null) {
+            switch (currentSeason) {
+                case WINTER:
+                    seasonalMultiplier = 1.3; // More particles in winter
+                    break;
+                case SPRING:
+                case AUTUMN:
+                    seasonalMultiplier = 1.1; // Slightly more in transitional seasons
+                    break;
+            }
+        }
+
         // Make particles more subtle - reduce base count and make force influence less dramatic
-        int baseParticleCount = (int) (maxParticles * 0.4); // 40% of max particles
+        int baseParticleCount = (int) (maxParticles * 0.4 * seasonalMultiplier);
         int particleCount = (int) (baseParticleCount * force * performanceMultiplier);
 
         // Ensure minimum particles for visibility but cap the maximum
         particleCount = Math.max(5, Math.min(particleCount, maxParticles / 2));
 
-        // Determine particle type and colors based on biome
-        BiomeParticleData particleData = getBiomeParticleData(biome);
+        // Determine particle type and colors based on biome and season
+        BiomeParticleData particleData = getBiomeParticleData(biome, currentSeason, currentWeather);
 
         for (int i = 0; i < particleCount; i++) {
             // Create particles around the player
@@ -271,22 +392,42 @@ public class WindManager {
             Location particleLoc = loc.clone().add(offsetX, offsetY, offsetZ);
 
             // More subtle particle velocity - reduced speed
-            Vector velocity = windDirection.clone().multiply(force * 0.8); // Reduced from 2 to 0.8
+            Vector velocity = windDirection.clone().multiply(force * 0.8);
 
-            // Spawn biome-specific particles
+            // Spawn biome and season-specific particles
             spawnBiomeParticle(player, particleLoc, velocity, force, particleData, true);
 
             // Add some variety with secondary particle types (less frequent)
-            if (random.nextInt(5) == 0) { // Reduced from 1 in 3 to 1 in 5
+            if (random.nextInt(5) == 0) {
                 spawnBiomeParticle(player, particleLoc, velocity, force, particleData, false);
             }
         }
     }
 
-    private BiomeParticleData getBiomeParticleData(Biome biome) {
+    private BiomeParticleData getBiomeParticleData(Biome biome, Season season, WeatherForecast.WeatherType weather) {
+        // Weather-specific overrides
+        if (weather == WeatherForecast.WeatherType.SNOW || weather == WeatherForecast.WeatherType.BLIZZARD) {
+            return new BiomeParticleData(
+                    Particle.DUST_COLOR_TRANSITION,
+                    Color.fromRGB(255, 255, 255), // Pure white
+                    Color.fromRGB(220, 240, 255), // Slight blue tint
+                    Particle.SNOWFLAKE // Secondary particle
+            );
+        }
+
+        // Season-influenced biome particles
         switch (biome) {
             // Desert biomes - sand particles
             case DESERT:
+                if (season == Season.WINTER) {
+                    // Cooler desert colors in winter
+                    return new BiomeParticleData(
+                            Particle.DUST_COLOR_TRANSITION,
+                            Color.fromRGB(220, 180, 150),
+                            Color.fromRGB(180, 130, 90),
+                            Particle.ASH
+                    );
+                }
                 return new BiomeParticleData(
                         Particle.DUST_COLOR_TRANSITION,
                         Color.fromRGB(237, 201, 175), // Light sand color
@@ -294,7 +435,7 @@ public class WindManager {
                         Particle.ASH // Secondary particle
                 );
 
-            // Cold/Snow biomes - snow particles
+            // Cold/Snow biomes - always snow particles
             case TAIGA:
             case SNOWY_PLAINS:
             case SNOWY_SLOPES:
@@ -311,7 +452,7 @@ public class WindManager {
                         Particle.SNOWFLAKE // Secondary particle
                 );
 
-            // Forest biomes - leaf particles
+            // Forest biomes - seasonal leaf colors
             case FOREST:
             case BIRCH_FOREST:
             case PLAINS:
@@ -322,13 +463,39 @@ public class WindManager {
             case WINDSWEPT_FOREST:
             case WINDSWEPT_HILLS:
             case WINDSWEPT_SAVANNA:
-            case SWAMP:
-            case MANGROVE_SWAMP:
+                if (season == Season.AUTUMN) {
+                    // Orange/red leaf particles in autumn
+                    return new BiomeParticleData(
+                            Particle.DUST_COLOR_TRANSITION,
+                            Color.fromRGB(255, 165, 0),  // Orange
+                            Color.fromRGB(139, 69, 19),  // Brown
+                            Particle.ASH
+                    );
+                } else if (season == Season.SPRING) {
+                    // Green leaf particles in spring
+                    return new BiomeParticleData(
+                            Particle.DUST_COLOR_TRANSITION,
+                            Color.fromRGB(144, 238, 144), // Light green
+                            Color.fromRGB(34, 139, 34),   // Forest green
+                            Particle.ASH
+                    );
+                }
+                // Default forest particles
                 return new BiomeParticleData(
                         Particle.DUST_COLOR_TRANSITION,
                         Color.fromRGB(255, 255, 255), // White
                         Color.fromRGB(192, 192, 192), // Light gray
-                        Particle.ASH // Secondary particle
+                        Particle.ASH
+                );
+
+            // Swamp biomes - murky particles
+            case SWAMP:
+            case MANGROVE_SWAMP:
+                return new BiomeParticleData(
+                        Particle.DUST_COLOR_TRANSITION,
+                        Color.fromRGB(128, 128, 64),  // Murky green
+                        Color.fromRGB(64, 64, 32),    // Dark murky
+                        Particle.ASH
                 );
 
             // Ocean/Beach biomes - salt spray
@@ -346,8 +513,16 @@ public class WindManager {
                         Particle.RAIN // Secondary particle
                 );
 
-            // Plains and other biomes - default ash
+            // Plains and other biomes - default with seasonal variation
             default:
+                if (season == Season.AUTUMN) {
+                    return new BiomeParticleData(
+                            Particle.DUST_COLOR_TRANSITION,
+                            Color.fromRGB(210, 180, 140), // Tan
+                            Color.fromRGB(160, 82, 45),   // Saddle brown
+                            Particle.DUST_PLUME
+                    );
+                }
                 return new BiomeParticleData(
                         Particle.ASH,
                         null,
@@ -448,12 +623,36 @@ public class WindManager {
             }
         }
 
-        public void updateDirection(Random random) {
-            // Gradually change wind direction
+        public void updateDirection(Random random, Season season) {
+            // Gradually change wind direction with seasonal influence
+            double changeIntensity = 0.2;
+
+            // Seasonal wind pattern influences
+            if (season != null) {
+                switch (season) {
+                    case WINTER:
+                        // More directional changes in winter (gusty)
+                        changeIntensity = 0.3;
+                        break;
+                    case SPRING:
+                        // Very variable in spring
+                        changeIntensity = 0.35;
+                        break;
+                    case SUMMER:
+                        // More stable in summer
+                        changeIntensity = 0.15;
+                        break;
+                    case AUTUMN:
+                        // Moderate changes in autumn
+                        changeIntensity = 0.25;
+                        break;
+                }
+            }
+
             Vector newDirection = new Vector(
-                    windDirection.getX() + (random.nextDouble() - 0.5) * 0.2,
+                    windDirection.getX() + (random.nextDouble() - 0.5) * changeIntensity,
                     0,
-                    windDirection.getZ() + (random.nextDouble() - 0.5) * 0.2
+                    windDirection.getZ() + (random.nextDouble() - 0.5) * changeIntensity
             ).normalize();
 
             windDirection = windDirection.clone().add(newDirection).normalize();

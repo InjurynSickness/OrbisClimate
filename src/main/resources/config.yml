@@ -1,5 +1,5 @@
 # OrbisClimate Configuration
-# A realistic wind system that responds to weather conditions
+# A realistic wind system that responds to weather conditions and seasons
 
 wind:
   # Enable or disable the wind system entirely
@@ -18,20 +18,38 @@ wind:
   particle_range: 10.0
 
   # Wind event chances (percentage chance every 30 seconds)
+  # These base chances are modified by seasonal multipliers:
+  # Winter: +40%, Spring: +20%, Autumn: +30%, Summer: -20%
   chances:
     clear_weather: 10.0      # 10% chance during clear weather
     rain: 25.0               # 25% chance during rain
+    snow: 15.0               # 15% chance during snow
     thunderstorm: 100.0      # 100% chance during thunderstorms
 
   # How long wind events last (in seconds)
+  # Duration is also modified by seasons:
+  # Winter: +30%, Spring: +10%, Autumn: +20%, Summer: no change
   duration:
     min_seconds: 30          # Minimum duration
     max_seconds: 120         # Maximum duration
 
-# Wind Event System:
-# - Every 30 seconds, the plugin rolls for a wind event based on current weather
-# - Clear weather: 10% chance of light wind (10% intensity)
-# - Rain: 25% chance of moderate wind (25% intensity)
-# - Thunderstorm: 100% chance of strong wind (100% intensity)
-# - Wind events last 30-120 seconds with particle effects and sounds
-# - Only affects players who are outdoors (no solid ceiling within 50 blocks)
+# Integration Information:
+# - RealisticSeasons: If installed, the plugin will use RealisticSeasons time and seasons
+#   to generate more realistic weather patterns and seasonal wind effects
+# - Seasonal Effects:
+#   * Winter: More frequent and intense wind, longer duration, snow particles
+#   * Spring: Variable wind patterns, fresh green particles in forests
+#   * Summer: Less frequent wind, more stable patterns
+#   * Autumn: Frequent wind, orange/brown leaf particles in forests
+# - Weather-Responsive Wind:
+#   * Clear weather: Light, infrequent wind
+#   * Rain: Moderate wind with rain-themed particles
+#   * Snow: Gentle wind with snowflake particles
+#   * Thunderstorms: Strong, frequent wind
+#   * Blizzards: Very strong wind with intense snow particles
+# - Biome-Specific Particles:
+#   * Deserts: Sand-colored particles
+#   * Forests: Leaf particles (color varies by season)
+#   * Oceans/Beaches: White foam particles
+#   * Swamps: Murky green particles
+#   * Snow Biomes: Always snow particles

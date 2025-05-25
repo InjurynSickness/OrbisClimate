@@ -4,6 +4,7 @@ main: com.orbismc.orbisClimate.OrbisClimate
 api-version: '1.21'
 authors: [ InjurynSickness ]
 description: A realistic wind system plugin for Minecraft
+softdepend: [RealisticSeasons]
 
 commands:
   wind:
