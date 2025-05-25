@@ -44,9 +44,12 @@ public class WindManager {
     // Blocks that don't count as "solid ceiling"
     private final Set<Material> bannedBlocks = new HashSet<>();
 
-    public WindManager(OrbisClimate plugin, Random random) {
+    private final WeatherForecast weatherForecast;
+
+    public WindManager(OrbisClimate plugin, Random random, WeatherForecast weatherForecast) {
         this.plugin = plugin;
         this.random = random;
+        this.weatherForecast = weatherForecast;
 
         loadConfig();
         initializeBannedBlocks();
@@ -151,11 +154,13 @@ public class WindManager {
 
             windData.startWindEvent(duration * 20, intensity); // Convert to ticks
 
-            // Notify players in the world
+            // Notify players in the world (only those with permission)
             String weatherType = getWeatherName(world);
             for (Player player : world.getPlayers()) {
-                player.sendMessage("§6[OrbisClimate] §aWind event started! " +
-                        "§7(" + weatherType + " - " + duration + "s)");
+                if (player.hasPermission("orbisclimate.notifications")) {
+                    player.sendMessage("§6[OrbisClimate] §aWind event started! " +
+                            "§7(" + weatherType + " - " + duration + "s)");
+                }
             }
 
             plugin.getLogger().info("Wind event started in " + world.getName() +
@@ -164,33 +169,39 @@ public class WindManager {
     }
 
     private double getWindChanceForWeather(World world) {
-        if (world.isThundering()) {
-            return thunderstormChance;
-        } else if (world.hasStorm()) {
-            return rainChance;
-        } else {
-            return clearWeatherChance;
+        WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(world);
+
+        switch (currentWeather) {
+            case THUNDERSTORM:
+                return thunderstormChance;
+            case HEAVY_RAIN:
+            case LIGHT_RAIN:
+                return rainChance;
+            case CLEAR:
+            default:
+                return clearWeatherChance;
         }
     }
 
     private double getWindIntensityForWeather(World world) {
-        if (world.isThundering()) {
-            return 1.0; // 100% intensity
-        } else if (world.hasStorm()) {
-            return 0.25; // 25% intensity
-        } else {
-            return 0.1; // 10% intensity
+        WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(world);
+
+        switch (currentWeather) {
+            case THUNDERSTORM:
+                return 1.0; // 100% intensity
+            case HEAVY_RAIN:
+                return 0.4; // 40% intensity for heavy rain
+            case LIGHT_RAIN:
+                return 0.25; // 25% intensity for light rain
+            case CLEAR:
+            default:
+                return 0.1; // 10% intensity
         }
     }
 
     private String getWeatherName(World world) {
-        if (world.isThundering()) {
-            return "Thunderstorm";
-        } else if (world.hasStorm()) {
-            return "Rain";
-        } else {
-            return "Clear";
-        }
+        WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(world);
+        return currentWeather.getDisplayName();
     }
 
     public boolean isPlayerIndoors(Player player) {
@@ -315,8 +326,8 @@ public class WindManager {
             case MANGROVE_SWAMP:
                 return new BiomeParticleData(
                         Particle.DUST_COLOR_TRANSITION,
-                        Color.fromRGB(34, 139, 34), // Forest green
-                        Color.fromRGB(85, 107, 47), // Darker olive green
+                        Color.fromRGB(255, 255, 255), // White
+                        Color.fromRGB(192, 192, 192), // Light gray
                         Particle.ASH // Secondary particle
                 );
 
@@ -332,7 +343,7 @@ public class WindManager {
                         Particle.DUST_COLOR_TRANSITION,
                         Color.fromRGB(255, 255, 255), // White foam
                         Color.fromRGB(176, 224, 230), // Light blue
-                        Particle.DRIPPING_WATER // Secondary particle
+                        Particle.RAIN // Secondary particle
                 );
 
             // Plains and other biomes - default ash

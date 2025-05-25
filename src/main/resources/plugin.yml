@@ -19,3 +19,6 @@ permissions:
   orbisclimate.admin:
     description: Allows administrative OrbisClimate commands
     default: op
+  orbisclimate.notifications:
+    description: Allows players to see wind event notifications
+    default: true

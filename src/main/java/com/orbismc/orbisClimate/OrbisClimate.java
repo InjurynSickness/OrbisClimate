@@ -7,6 +7,7 @@ import java.util.Random;
 public class OrbisClimate extends JavaPlugin {
 
     private WindManager windManager;
+    private WeatherForecast weatherForecast;
     private Random random;
 
     @Override
@@ -17,13 +18,21 @@ public class OrbisClimate extends JavaPlugin {
         // Initialize random
         random = new Random();
 
+        // Initialize weather forecast system
+        weatherForecast = new WeatherForecast(this);
+
         // Initialize wind manager
-        windManager = new WindManager(this, random);
+        windManager = new WindManager(this, random, weatherForecast);
 
         // Register commands
-        WindCommand windCommand = new WindCommand(this, windManager);
+        WindCommand windCommand = new WindCommand(this, windManager, weatherForecast);
         getCommand("wind").setExecutor(windCommand);
         getCommand("wind").setTabCompleter(windCommand);
+
+        // Start weather forecast task (check every minute for time changes)
+        Bukkit.getScheduler().runTaskTimer(this, () -> {
+            Bukkit.getWorlds().forEach(world -> weatherForecast.checkAndUpdateForecast(world));
+        }, 0L, 1200L); // Every minute (1200 ticks)
 
         getLogger().info("OrbisClimate has been enabled!");
     }
@@ -38,5 +47,9 @@ public class OrbisClimate extends JavaPlugin {
 
     public Random getRandom() {
         return random;
+    }
+
+    public WeatherForecast getWeatherForecast() {
+        return weatherForecast;
     }
 }
