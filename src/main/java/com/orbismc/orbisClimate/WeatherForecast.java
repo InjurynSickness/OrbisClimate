@@ -1,8 +1,8 @@
 package com.orbismc.orbisClimate;
 
 import me.casperge.realisticseasons.api.SeasonsAPI;
-import me.casperge.realisticseasons.api.objects.Date;
-import me.casperge.realisticseasons.api.objects.Season;
+import me.casperge.realisticseasons.calendar.Date;
+import me.casperge.realisticseasons.season.Season;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
@@ -196,7 +196,7 @@ public class WeatherForecast {
                     heavyPrecipChance = 10.0;
                     stormChance = 10.0;        // But still thunderstorms
                     break;
-                case AUTUMN:
+                case FALL: // Note: RealisticSeasons uses FALL, not AUTUMN
                     clearChance = 30.0;
                     lightPrecipChance = 40.0;  // Lots of rain in autumn
                     heavyPrecipChance = 25.0;

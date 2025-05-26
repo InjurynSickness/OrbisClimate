@@ -1,7 +1,7 @@
 package com.orbismc.orbisClimate;
 
-import me.casperge.realisticseasons.api.objects.Date;
-import me.casperge.realisticseasons.api.objects.Season;
+import me.casperge.realisticseasons.calendar.Date;
+import me.casperge.realisticseasons.season.Season;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;

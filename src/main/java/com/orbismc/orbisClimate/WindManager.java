@@ -1,6 +1,6 @@
 package com.orbismc.orbisClimate;
 
-import me.casperge.realisticseasons.api.objects.Season;
+import me.casperge.realisticseasons.season.Season;
 import org.bukkit.Bukkit;
 import org.bukkit.Color;
 import org.bukkit.Location;
@@ -165,7 +165,7 @@ public class WindManager {
                     case SPRING:
                         duration = (int) (duration * 1.1); // 10% longer in spring
                         break;
-                    case AUTUMN:
+                    case FALL: // Note: RealisticSeasons uses FALL, not AUTUMN
                         duration = (int) (duration * 1.2); // 20% longer in autumn
                         break;
                     // Summer keeps default duration
@@ -224,7 +224,7 @@ public class WindManager {
                 case SPRING:
                     baseChance *= 1.2; // 20% more wind in spring
                     break;
-                case AUTUMN:
+                case FALL: // Note: RealisticSeasons uses FALL, not AUTUMN
                     baseChance *= 1.3; // 30% more wind in autumn
                     break;
                 case SUMMER:
@@ -272,7 +272,7 @@ public class WindManager {
                 case SPRING:
                     baseIntensity *= 1.1; // 10% more intense in spring
                     break;
-                case AUTUMN:
+                case FALL: // Note: RealisticSeasons uses FALL, not AUTUMN
                     baseIntensity *= 1.15; // 15% more intense in autumn
                     break;
                 // Summer keeps base intensity
@@ -367,7 +367,7 @@ public class WindManager {
                     seasonalMultiplier = 1.3; // More particles in winter
                     break;
                 case SPRING:
-                case AUTUMN:
+                case FALL: // Note: RealisticSeasons uses FALL, not AUTUMN
                     seasonalMultiplier = 1.1; // Slightly more in transitional seasons
                     break;
             }
@@ -463,7 +463,7 @@ public class WindManager {
             case WINDSWEPT_FOREST:
             case WINDSWEPT_HILLS:
             case WINDSWEPT_SAVANNA:
-                if (season == Season.AUTUMN) {
+                if (season == Season.FALL) { // Note: RealisticSeasons uses FALL, not AUTUMN
                     // Orange/red leaf particles in autumn
                     return new BiomeParticleData(
                             Particle.DUST_COLOR_TRANSITION,
@@ -515,7 +515,7 @@ public class WindManager {
 
             // Plains and other biomes - default with seasonal variation
             default:
-                if (season == Season.AUTUMN) {
+                if (season == Season.FALL) { // Note: RealisticSeasons uses FALL, not AUTUMN
                     return new BiomeParticleData(
                             Particle.DUST_COLOR_TRANSITION,
                             Color.fromRGB(210, 180, 140), // Tan
@@ -642,7 +642,7 @@ public class WindManager {
                         // More stable in summer
                         changeIntensity = 0.15;
                         break;
-                    case AUTUMN:
+                    case FALL: // Note: RealisticSeasons uses FALL, not AUTUMN
                         // Moderate changes in autumn
                         changeIntensity = 0.25;
                         break;
