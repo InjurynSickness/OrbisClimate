@@ -24,15 +24,27 @@ public class WindCommand implements CommandExecutor, TabCompleter {
         this.weatherForecast = weatherForecast;
     }
 
+    // Helper methods to get managers from plugin
+    private ClimateZoneManager getClimateZoneManager() {
+        return plugin.getClimateZoneManager();
+    }
+
+    private TemperatureManager getTemperatureManager() {
+        return plugin.getTemperatureManager();
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0) {
             sender.sendMessage(ChatColor.GOLD + "=== OrbisClimate Commands ===");
             sender.sendMessage(ChatColor.YELLOW + "/wind reload " + ChatColor.WHITE + "- Reload configuration");
-            sender.sendMessage(ChatColor.YELLOW + "/wind info " + ChatColor.WHITE + "- Show wind information");
+            sender.sendMessage(ChatColor.YELLOW + "/wind info " + ChatColor.WHITE + "- Show climate information");
             sender.sendMessage(ChatColor.YELLOW + "/wind forecast " + ChatColor.WHITE + "- Show weather forecast");
+            sender.sendMessage(ChatColor.YELLOW + "/wind temperature " + ChatColor.WHITE + "- Show temperature info");
+            sender.sendMessage(ChatColor.YELLOW + "/wind zone " + ChatColor.WHITE + "- Show climate zone info");
             sender.sendMessage(ChatColor.YELLOW + "/wind regenerate " + ChatColor.WHITE + "- Regenerate today's forecast");
             sender.sendMessage(ChatColor.YELLOW + "/wind status " + ChatColor.WHITE + "- Show integration status");
+            sender.sendMessage(ChatColor.YELLOW + "/wind debug " + ChatColor.WHITE + "- Show debug information (Admin)");
             return true;
         }
 
@@ -43,9 +55,8 @@ public class WindCommand implements CommandExecutor, TabCompleter {
                     return true;
                 }
 
-                plugin.reloadConfig();
-                windManager.reloadConfig();
-                sender.sendMessage(ChatColor.GREEN + "Wind configuration reloaded!");
+                plugin.reloadConfiguration();
+                sender.sendMessage(ChatColor.GREEN + "OrbisClimate configuration reloaded!");
                 break;
 
             case "info":
@@ -55,7 +66,7 @@ public class WindCommand implements CommandExecutor, TabCompleter {
                 }
 
                 Player player = (Player) sender;
-                showWindInfo(player);
+                showClimateInfo(player);
                 break;
 
             case "forecast":
@@ -66,6 +77,27 @@ public class WindCommand implements CommandExecutor, TabCompleter {
 
                 Player forecastPlayer = (Player) sender;
                 showForecast(forecastPlayer);
+                break;
+
+            case "temperature":
+            case "temp":
+                if (!(sender instanceof Player)) {
+                    sender.sendMessage(ChatColor.RED + "This command can only be used by players!");
+                    return true;
+                }
+
+                Player tempPlayer = (Player) sender;
+                showTemperatureInfo(tempPlayer);
+                break;
+
+            case "zone":
+                if (!(sender instanceof Player)) {
+                    sender.sendMessage(ChatColor.RED + "This command can only be used by players!");
+                    return true;
+                }
+
+                Player zonePlayer = (Player) sender;
+                showZoneInfo(zonePlayer);
                 break;
 
             case "regenerate":
@@ -88,6 +120,21 @@ public class WindCommand implements CommandExecutor, TabCompleter {
                 showIntegrationStatus(sender);
                 break;
 
+            case "debug":
+                if (!sender.hasPermission("orbisclimate.admin")) {
+                    sender.sendMessage(ChatColor.RED + "You don't have permission to use this command!");
+                    return true;
+                }
+
+                if (!(sender instanceof Player)) {
+                    sender.sendMessage(ChatColor.RED + "This command can only be used by players!");
+                    return true;
+                }
+
+                Player debugPlayer = (Player) sender;
+                showDebugInfo(debugPlayer);
+                break;
+
             default:
                 sender.sendMessage(ChatColor.RED + "Unknown command! Use /wind for help.");
                 break;
@@ -96,12 +143,36 @@ public class WindCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
-    private void showWindInfo(Player player) {
-        player.sendMessage(ChatColor.GOLD + "=== Wind Information ===");
+    private void showClimateInfo(Player player) {
+        ClimateZoneManager climateZoneManager = getClimateZoneManager();
+        TemperatureManager temperatureManager = getTemperatureManager();
+        
+        if (climateZoneManager == null || temperatureManager == null) {
+            player.sendMessage(ChatColor.RED + "Climate system not fully initialized!");
+            return;
+        }
+
+        player.sendMessage(ChatColor.GOLD + "=== Climate Information ===");
 
         // Current weather info
         WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(player.getWorld());
-        player.sendMessage(ChatColor.AQUA + "Current Weather: " + ChatColor.WHITE + currentWeather.getDisplayName());
+        WeatherForecast.WeatherType zoneWeather = climateZoneManager.getPlayerZoneWeather(player);
+        
+        player.sendMessage(ChatColor.AQUA + "World Weather: " + ChatColor.WHITE + currentWeather.getDisplayName());
+        
+        if (zoneWeather != currentWeather) {
+            player.sendMessage(ChatColor.AQUA + "Your Zone Weather: " + ChatColor.WHITE + zoneWeather.getDisplayName());
+        }
+
+        // Climate zone info
+        ClimateZoneManager.ClimateZone zone = climateZoneManager.getPlayerClimateZone(player);
+        player.sendMessage(ChatColor.AQUA + "Climate Zone: " + ChatColor.WHITE + zone.getDisplayName());
+
+        // Temperature info
+        double temperature = temperatureManager.getPlayerTemperature(player);
+        String tempLevel = temperatureManager.getPlayerTemperatureLevel(player);
+        player.sendMessage(ChatColor.AQUA + "Temperature: " + ChatColor.WHITE + 
+            String.format("%.1f°C", temperature) + " (" + tempLevel + ")");
 
         // Show season information if RealisticSeasons is enabled
         if (weatherForecast.isRealisticSeasonsEnabled()) {
@@ -119,36 +190,124 @@ public class WindCommand implements CommandExecutor, TabCompleter {
             }
         }
 
-        // Wind chances based on current weather
-        String windChance;
-        if (currentWeather == WeatherForecast.WeatherType.THUNDERSTORM) {
-            windChance = "100% wind chance";
-        } else if (currentWeather == WeatherForecast.WeatherType.HEAVY_RAIN ||
-                currentWeather == WeatherForecast.WeatherType.LIGHT_RAIN ||
-                currentWeather == WeatherForecast.WeatherType.BLIZZARD) {
-            windChance = "25% wind chance";
-        } else if (currentWeather == WeatherForecast.WeatherType.SNOW) {
-            windChance = "15% wind chance";
-        } else {
-            windChance = "10% wind chance";
+        // Special conditions
+        if (climateZoneManager.isPlayerInDrought(player)) {
+            player.sendMessage(ChatColor.RED + "⚠ Drought conditions active in your area!");
         }
+
+        // Wind chances based on current weather
+        String windChance = getWindChanceDescription(zoneWeather);
         player.sendMessage(ChatColor.GRAY + "(" + windChance + ")");
 
         // Indoor/outdoor status
         boolean isIndoors = windManager.isPlayerIndoors(player);
         player.sendMessage(ChatColor.AQUA + "Location: " + ChatColor.WHITE +
-                (isIndoors ? "Indoors (no wind effects)" : "Outdoors"));
+                (isIndoors ? "Indoors (protected from weather)" : "Outdoors"));
 
-        // Show active wind status if outdoors
+        // Show active effects
         if (!isIndoors) {
             boolean hasActiveWind = windManager.hasActiveWind(player.getWorld());
             player.sendMessage(ChatColor.AQUA + "Wind Status: " + ChatColor.WHITE +
                     (hasActiveWind ? "Active" : "Calm"));
+
+            if (plugin.getWeatherProgressionManager() != null) {
+                WeatherProgressionManager.WeatherProgression progression = 
+                    plugin.getWeatherProgressionManager().getWorldProgression(player.getWorld());
+                if (progression != WeatherProgressionManager.WeatherProgression.CLEAR) {
+                    player.sendMessage(ChatColor.AQUA + "Weather Stage: " + ChatColor.WHITE + 
+                        progression.name().toLowerCase().replace("_", " "));
+                }
+            }
+        }
+    }
+
+    private void showTemperatureInfo(Player player) {
+        TemperatureManager temperatureManager = getTemperatureManager();
+        ClimateZoneManager climateZoneManager = getClimateZoneManager();
+        
+        if (temperatureManager == null || climateZoneManager == null) {
+            player.sendMessage(ChatColor.RED + "Temperature system not available!");
+            return;
         }
 
-        // Configuration info
-        int heightCheck = plugin.getConfig().getInt("wind.interior_height_distance", 50);
-        player.sendMessage(ChatColor.AQUA + "Ceiling Check: " + ChatColor.WHITE + heightCheck + " blocks");
+        player.sendMessage(ChatColor.GOLD + "=== Temperature Information ===");
+
+        double currentTemp = temperatureManager.getPlayerTemperature(player);
+        String tempLevel = temperatureManager.getPlayerTemperatureLevel(player);
+        ClimateZoneManager.ClimateZone zone = climateZoneManager.getPlayerClimateZone(player);
+
+        player.sendMessage(ChatColor.AQUA + "Current Temperature: " + ChatColor.WHITE +
+            String.format("%.1f°C (%.1f°F)", currentTemp, (currentTemp * 9/5) + 32));
+        
+        player.sendMessage(ChatColor.AQUA + "Comfort Level: " + ChatColor.WHITE + tempLevel);
+
+        // Zone temperature range
+        player.sendMessage(ChatColor.AQUA + "Zone Range: " + ChatColor.WHITE +
+            zone.getMinTemp() + "°C to " + zone.getMaxTemp() + "°C");
+
+        // Temperature effects
+        if (temperatureManager.isPlayerTooHot(player)) {
+            player.sendMessage(ChatColor.RED + "⚠ You are experiencing heat effects!");
+        } else if (temperatureManager.isPlayerTooCold(player)) {
+            player.sendMessage(ChatColor.BLUE + "⚠ You are experiencing cold effects!");
+        } else {
+            player.sendMessage(ChatColor.GREEN + "✓ Temperature is comfortable");
+        }
+
+        // Drought bonus
+        if (climateZoneManager.isPlayerInDrought(player)) {
+            double droughtBonus = plugin.getConfig().getDouble("drought.effects.temperature_bonus", 15.0);
+            player.sendMessage(ChatColor.YELLOW + "Drought Heat Bonus: +" + droughtBonus + "°C");
+        }
+    }
+
+    private void showZoneInfo(Player player) {
+        ClimateZoneManager climateZoneManager = getClimateZoneManager();
+        
+        if (climateZoneManager == null) {
+            player.sendMessage(ChatColor.RED + "Climate zone system not available!");
+            return;
+        }
+
+        player.sendMessage(ChatColor.GOLD + "=== Climate Zone Information ===");
+
+        ClimateZoneManager.ClimateZone zone = climateZoneManager.getPlayerClimateZone(player);
+        player.sendMessage(ChatColor.AQUA + "Current Zone: " + ChatColor.WHITE + zone.getDisplayName());
+
+        // Zone characteristics
+        player.sendMessage(ChatColor.AQUA + "Temperature Range: " + ChatColor.WHITE +
+            zone.getMinTemp() + "°C to " + zone.getMaxTemp() + "°C");
+
+        // Zone-specific weather
+        WeatherForecast.WeatherType zoneWeather = climateZoneManager.getPlayerZoneWeather(player);
+        player.sendMessage(ChatColor.AQUA + "Zone Weather: " + ChatColor.WHITE + zoneWeather.getDisplayName());
+
+        // Special zone effects
+        switch (zone) {
+            case ARCTIC:
+                player.sendMessage(ChatColor.AQUA + "Zone Effects: " + ChatColor.WHITE + 
+                    "Aurora at night, Wind-blown snow, Extreme cold");
+                break;
+            case DESERT:
+                player.sendMessage(ChatColor.AQUA + "Zone Effects: " + ChatColor.WHITE + 
+                    "Heat mirages, Drought conditions, Sandstorms");
+                if (climateZoneManager.isPlayerInDrought(player)) {
+                    player.sendMessage(ChatColor.RED + "⚠ Drought active - increased heat and effects!");
+                }
+                break;
+            case TEMPERATE:
+                player.sendMessage(ChatColor.AQUA + "Zone Effects: " + ChatColor.WHITE + 
+                    "Seasonal variation, Hurricane potential, Moderate climate");
+                break;
+        }
+
+        // Position info
+        player.sendMessage(ChatColor.GRAY + "Location: " + 
+            player.getLocation().getBlockX() + ", " + 
+            player.getLocation().getBlockY() + ", " + 
+            player.getLocation().getBlockZ());
+        player.sendMessage(ChatColor.GRAY + "Biome: " + 
+            player.getLocation().getBlock().getBiome().name().toLowerCase().replace("_", " "));
     }
 
     private void showForecast(Player player) {
@@ -185,9 +344,53 @@ public class WindCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(ChatColor.YELLOW + "Night (12AM-6AM): " + ChatColor.WHITE +
                 forecast.getNightWeather().getDisplayName());
 
-        // Show current weather
+        // Show current weather and progression
         WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(player.getWorld());
         player.sendMessage(ChatColor.AQUA + "Current: " + ChatColor.WHITE + currentWeather.getDisplayName());
+
+        if (plugin.getWeatherProgressionManager() != null) {
+            WeatherProgressionManager.WeatherProgression progression = 
+                plugin.getWeatherProgressionManager().getWorldProgression(player.getWorld());
+            if (progression != WeatherProgressionManager.WeatherProgression.CLEAR) {
+                player.sendMessage(ChatColor.AQUA + "Progression: " + ChatColor.WHITE + 
+                    progression.name().toLowerCase().replace("_", " "));
+            }
+
+            if (plugin.getWeatherProgressionManager().isHailActive(player.getWorld())) {
+                player.sendMessage(ChatColor.WHITE + "❄ Hail is currently falling!");
+            }
+        }
+    }
+
+    private void showDebugInfo(Player player) {
+        ClimateZoneManager climateZoneManager = getClimateZoneManager();
+        TemperatureManager temperatureManager = getTemperatureManager();
+        
+        player.sendMessage(ChatColor.GOLD + "=== Debug Information ===");
+
+        // Manager status
+        player.sendMessage(ChatColor.AQUA + "Managers Loaded:");
+        player.sendMessage(ChatColor.WHITE + "  WindManager: " + (windManager != null ? "✓" : "✗"));
+        player.sendMessage(ChatColor.WHITE + "  ClimateZoneManager: " + (climateZoneManager != null ? "✓" : "✗"));
+        player.sendMessage(ChatColor.WHITE + "  TemperatureManager: " + (temperatureManager != null ? "✓" : "✗"));
+        player.sendMessage(ChatColor.WHITE + "  WeatherProgressionManager: " + (plugin.getWeatherProgressionManager() != null ? "✓" : "✗"));
+
+        if (climateZoneManager != null && temperatureManager != null) {
+            // Current values
+            player.sendMessage(ChatColor.AQUA + "Current Values:");
+            player.sendMessage(ChatColor.WHITE + "  Zone: " + climateZoneManager.getPlayerClimateZone(player));
+            player.sendMessage(ChatColor.WHITE + "  Temperature: " + String.format("%.2f°C", temperatureManager.getPlayerTemperature(player)));
+            player.sendMessage(ChatColor.WHITE + "  Zone Weather: " + climateZoneManager.getPlayerZoneWeather(player));
+            player.sendMessage(ChatColor.WHITE + "  World Weather: " + weatherForecast.getCurrentWeather(player.getWorld()));
+            player.sendMessage(ChatColor.WHITE + "  Indoors: " + windManager.isPlayerIndoors(player));
+            player.sendMessage(ChatColor.WHITE + "  Drought: " + climateZoneManager.isPlayerInDrought(player));
+        }
+
+        // Performance info
+        player.sendMessage(ChatColor.AQUA + "Performance:");
+        player.sendMessage(ChatColor.WHITE + "  Online Players: " + player.getServer().getOnlinePlayers().size());
+        player.sendMessage(ChatColor.WHITE + "  World: " + player.getWorld().getName());
+        player.sendMessage(ChatColor.WHITE + "  TPS: " + String.format("%.2f", getAverageTPS()));
     }
 
     private void showIntegrationStatus(CommandSender sender) {
@@ -201,35 +404,86 @@ public class WindCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(ChatColor.GRAY + "  Using vanilla Minecraft time system");
         }
 
-        // Show if player is a player to give world-specific info
+        // Feature status
+        sender.sendMessage(ChatColor.AQUA + "Feature Status:");
+        sender.sendMessage(ChatColor.WHITE + "  Climate Zones: " + getFeatureStatus("climate_zones"));
+        sender.sendMessage(ChatColor.WHITE + "  Temperature System: " + getFeatureStatus("temperature.enabled"));
+        sender.sendMessage(ChatColor.WHITE + "  Weather Progression: " + getFeatureStatus("weather_progression.enabled"));
+        sender.sendMessage(ChatColor.WHITE + "  Aurora Effects: " + getFeatureStatus("aurora.enabled"));
+        sender.sendMessage(ChatColor.WHITE + "  Heat Mirages: " + getFeatureStatus("heat_mirages.enabled"));
+        sender.sendMessage(ChatColor.WHITE + "  Drought System: " + getFeatureStatus("drought.effects.enabled"));
+
+        // Show world-specific info if player
         if (sender instanceof Player) {
             Player player = (Player) sender;
+            showWorldSpecificStatus(player);
+        }
+    }
 
-            if (weatherForecast.isRealisticSeasonsEnabled()) {
-                Season currentSeason = weatherForecast.getCurrentSeason(player.getWorld());
-                Date currentDate = weatherForecast.getCurrentDate(player.getWorld());
+    private void showWorldSpecificStatus(Player player) {
+        ClimateZoneManager climateZoneManager = getClimateZoneManager();
+        
+        player.sendMessage(ChatColor.AQUA + "World Status (" + player.getWorld().getName() + "):");
 
-                sender.sendMessage(ChatColor.AQUA + "World Status:");
+        if (weatherForecast.isRealisticSeasonsEnabled()) {
+            Season currentSeason = weatherForecast.getCurrentSeason(player.getWorld());
+            Date currentDate = weatherForecast.getCurrentDate(player.getWorld());
 
-                if (currentSeason != null) {
-                    sender.sendMessage(ChatColor.WHITE + "  Season: " + currentSeason.toString().toLowerCase());
-                }
-
-                if (currentDate != null) {
-                    sender.sendMessage(ChatColor.WHITE + "  Date: " +
-                            currentDate.getMonth() + "/" + currentDate.getDay() + "/" + currentDate.getYear());
-                }
-
-                WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(player.getWorld());
-                sender.sendMessage(ChatColor.WHITE + "  Weather: " + currentWeather.getDisplayName());
+            if (currentSeason != null) {
+                player.sendMessage(ChatColor.WHITE + "  Season: " + currentSeason.toString().toLowerCase());
             }
+
+            if (currentDate != null) {
+                player.sendMessage(ChatColor.WHITE + "  Date: " +
+                        currentDate.getMonth() + "/" + currentDate.getDay() + "/" + currentDate.getYear());
+            }
+        }
+
+        WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(player.getWorld());
+        player.sendMessage(ChatColor.WHITE + "  Weather: " + currentWeather.getDisplayName());
+        
+        if (climateZoneManager != null) {
+            ClimateZoneManager.ClimateZone zone = climateZoneManager.getPlayerClimateZone(player);
+            player.sendMessage(ChatColor.WHITE + "  Your Zone: " + zone.getDisplayName());
+        }
+    }
+
+    private String getWindChanceDescription(WeatherForecast.WeatherType weather) {
+        switch (weather) {
+            case THUNDERSTORM:
+                return "100% wind chance";
+            case HEAVY_RAIN:
+            case LIGHT_RAIN:
+            case BLIZZARD:
+                return "25% wind chance";
+            case SNOW:
+                return "15% wind chance";
+            case SANDSTORM:
+                return "High wind chance";
+            default:
+                return "10% wind chance";
+        }
+    }
+
+    private String getFeatureStatus(String configPath) {
+        return plugin.getConfig().getBoolean(configPath, true) ? "ENABLED" : "DISABLED";
+    }
+
+    private double getAverageTPS() {
+        // Simple TPS calculation - this is a rough estimate
+        try {
+            Object server = plugin.getServer().getClass().getMethod("getServer").invoke(plugin.getServer());
+            double[] tps = (double[]) server.getClass().getField("recentTps").get(server);
+            return tps[0];
+        } catch (Exception e) {
+            return 20.0; // Default to 20 if can't get real TPS
         }
     }
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return Arrays.asList("reload", "info", "forecast", "regenerate", "status");
+            return Arrays.asList("reload", "info", "forecast", "temperature", "zone", "regenerate", "status", "debug");
         }
         return null;
     }

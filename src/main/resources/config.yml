@@ -1,6 +1,7 @@
 # OrbisClimate Configuration
-# A realistic wind system that responds to weather conditions and seasons
+# A realistic climate system with regional zones and multi-day weather tracking
 
+# ======= WIND SYSTEM =======
 wind:
   # Enable or disable the wind system entirely
   enabled: true
@@ -9,6 +10,9 @@ wind:
   # Higher values = better detection of high ceilings but more performance cost
   # Default: 50 blocks (suitable for large buildings)
   interior_height_distance: 50
+
+  # Minimum height for wind effects (prevents wind in valleys/underground)
+  min_height: 50
 
   # Maximum number of particles to show per player during wind events
   # Higher values = more visual effect but may cause lag
@@ -33,6 +37,7 @@ wind:
     min_seconds: 30          # Minimum duration
     max_seconds: 120         # Maximum duration
 
+# ======= BLIZZARD SYSTEM =======
 blizzard:
   damage: 1.0                    # Damage per effect tick
   min_freezing_height: 60        # Minimum Y level for effects
@@ -41,12 +46,7 @@ blizzard:
   particle_multiplier: 1.0       # Particle density multiplier
   temperature_threshold: 0.15    # Biome temperature threshold
 
-  wind:
-    min_height: 62              # Wind threshold (valleys protected)
-
-  blizzard:
-    min_freezing_height: 62     # Blizzard threshold (higher = more exclusive)
-
+# ======= SANDSTORM SYSTEM =======
 sandstorm:
   min_height: 62              # Minimum Y level for effects
   particle_range: 15          # Particle spawn radius
@@ -56,23 +56,360 @@ sandstorm:
   slowness_duration: 100      # Slowness duration (5 seconds)
   slowness_amplifier: 1       # Slowness level (0=I, 1=II, 2=III)
 
-# Integration Information:
-# - RealisticSeasons: If installed, the plugin will use RealisticSeasons time and seasons
-#   to generate more realistic weather patterns and seasonal wind effects
-# - Seasonal Effects:
-#   * Winter: More frequent and intense wind, longer duration, snow particles
-#   * Spring: Variable wind patterns, fresh green particles in forests
-#   * Summer: Less frequent wind, more stable patterns
-#   * Autumn: Frequent wind, orange/brown leaf particles in forests
-# - Weather-Responsive Wind:
-#   * Clear weather: Light, infrequent wind
-#   * Rain: Moderate wind with rain-themed particles
-#   * Snow: Gentle wind with snowflake particles
-#   * Thunderstorms: Strong, frequent wind
-#   * Blizzards: Very strong wind with intense snow particles
-# - Biome-Specific Particles:
-#   * Deserts: Sand-colored particles
-#   * Forests: Leaf particles (color varies by season)
-#   * Oceans/Beaches: White foam particles
-#   * Swamps: Murky green particles
-#   * Snow Biomes: Always snow particles
+# ======= CLIMATE ZONE SYSTEM =======
+# Configure different climate zones per world
+# Each zone can be defined by biomes OR coordinate boundaries
+
+climate_zones:
+  # World name (e.g., "world", "world_nether", "world_the_end")
+  world:
+    arctic:
+      enabled: true
+      # Use coordinate-based detection instead of biomes
+      use_coordinates: false
+      # Temperature modifier for this zone (multiplier)
+      temperature_modifier: 0.7  # 30% colder than base
+
+      # Biome-based zone definition (used when use_coordinates: false)
+      biomes:
+        - SNOWY_PLAINS
+        - SNOWY_TAIGA
+        - SNOWY_SLOPES
+        - SNOWY_BEACH
+        - FROZEN_RIVER
+        - FROZEN_OCEAN
+        - DEEP_FROZEN_OCEAN
+        - ICE_SPIKES
+        - GROVE
+        - JAGGED_PEAKS
+        - FROZEN_PEAKS
+        - TAIGA
+
+      # Coordinate-based zone definition (used when use_coordinates: true)
+      coordinates:
+        min_x: -2000
+        max_x: -1000
+        min_z: -2000
+        max_z: 2000
+        min_y: -64
+        max_y: 320
+
+    temperate:
+      enabled: true
+      use_coordinates: false
+      temperature_modifier: 1.0  # Normal temperature
+
+      biomes:
+        - PLAINS
+        - FOREST
+        - BIRCH_FOREST
+        - DARK_FOREST
+        - FLOWER_FOREST
+        - RIVER
+        - BEACH
+        - OCEAN
+        - DEEP_OCEAN
+        - LUKEWARM_OCEAN
+        - WARM_OCEAN
+        - MUSHROOM_FIELDS
+        - WINDSWEPT_HILLS
+        - WINDSWEPT_FOREST
+
+      coordinates:
+        min_x: -1000
+        max_x: 1000
+        min_z: -2000
+        max_z: 2000
+        min_y: -64
+        max_y: 320
+
+    desert:
+      enabled: true
+      use_coordinates: false
+      temperature_modifier: 1.4  # 40% hotter than base
+
+      biomes:
+        - DESERT
+        - BADLANDS
+        - ERODED_BADLANDS
+        - WOODED_BADLANDS
+        - SAVANNA
+        - SAVANNA_PLATEAU
+        - WINDSWEPT_SAVANNA
+
+      coordinates:
+        min_x: 1000
+        max_x: 2000
+        min_z: -2000
+        max_z: 2000
+        min_y: -64
+        max_y: 320
+
+  # Example for a custom world with coordinate-based zones
+  survival_world:
+    arctic:
+      enabled: true
+      use_coordinates: true
+      temperature_modifier: 0.6
+
+      biomes: []  # Empty when using coordinates
+
+      coordinates:
+        min_x: -5000
+        max_x: -2000
+        min_z: -5000
+        max_z: 5000
+        min_y: 50
+        max_y: 320
+
+    temperate:
+      enabled: true
+      use_coordinates: true
+      temperature_modifier: 1.0
+
+      biomes: []
+
+      coordinates:
+        min_x: -2000
+        max_x: 2000
+        min_z: -5000
+        max_z: 5000
+        min_y: -64
+        max_y: 320
+
+    desert:
+      enabled: true
+      use_coordinates: true
+      temperature_modifier: 1.5
+
+      biomes: []
+
+      coordinates:
+        min_x: 2000
+        max_x: 5000
+        min_z: -5000
+        max_z: 5000
+        min_y: 40
+        max_y: 320
+
+# ======= DROUGHT SYSTEM =======
+drought:
+  # Minimum consecutive clear days to trigger drought
+  min_clear_days: 5
+
+  # Maximum drought duration in days (will end when weather changes or max reached)
+  max_duration_days: 15
+
+  # Effects during drought
+  effects:
+    # Additional temperature increase during drought
+    temperature_bonus: 15
+
+    # Heat exhaustion effects
+    heat_exhaustion:
+      enabled: true
+      # Chance per minute to apply heat exhaustion effects
+      chance_per_minute: 25
+      # Effects to apply (potion effects)
+      effects:
+        - SLOWNESS:1:60   # Slowness I for 3 seconds
+        - HUNGER:0:100    # Hunger for 5 seconds
+
+    # Crop growth effects
+    crop_effects:
+      enabled: true
+      # Chance for crops to wither during drought
+      wither_chance: 10
+      # Growth speed modifier (0.5 = 50% slower)
+      growth_modifier: 0.3
+
+# ======= TEMPERATURE SYSTEM =======
+temperature:
+  # Enable temperature-based effects
+  enabled: true
+
+  # Base temperatures for each climate zone (in Celsius)
+  base_temperatures:
+    arctic: -15
+    temperate: 15
+    desert: 35
+
+  # Temperature effects on players
+  player_effects:
+    # Cold effects (below 0°C)
+    cold:
+      # Temperature thresholds for different cold levels
+      mild_cold: 0      # Above 0°C
+      cold: -10         # Below -10°C
+      severe_cold: -25  # Below -25°C
+
+      # Effects for each level
+      effects:
+        mild_cold: []
+        cold:
+          - SLOWNESS:0:100  # Slowness I for 5 seconds
+        severe_cold:
+          - SLOWNESS:1:100  # Slowness II for 5 seconds
+          - WITHER:0:60     # Wither I for 3 seconds (cold damage)
+
+    # Heat effects (above 30°C)
+    heat:
+      mild_heat: 30     # Above 30°C
+      hot: 40           # Above 40°C
+      severe_heat: 50   # Above 50°C
+
+      effects:
+        mild_heat: []
+        hot:
+          - HUNGER:0:100    # Hunger for 5 seconds
+        severe_heat:
+          - HUNGER:1:100    # Hunger II for 5 seconds
+          - SLOWNESS:0:100  # Slowness I for 5 seconds
+
+# ======= WEATHER PROGRESSION SYSTEM =======
+weather_progression:
+  # Enable progressive weather changes (Clear -> Pre-storm -> Light rain -> Heavy rain -> Thunderstorm)
+  enabled: true
+
+  # Pre-storm phase duration (lightning warnings before storm)
+  pre_storm_duration_minutes: 5
+
+  # Lightning warnings before thunderstorms
+  lightning_warnings:
+    enabled: true
+    # Interval between lightning warning flashes (in seconds)
+    interval_seconds: 30
+    # Number of warnings before storm arrives
+    warning_count: 6
+
+  # Hail system during heavy rain
+  hail:
+    enabled: true
+    # Chance for hail to occur during heavy rain (0.0 to 1.0)
+    chance_during_rain: 0.3
+    # How long hail lasts (in minutes)
+    duration_minutes: 3
+    # Hail damage to players (set to 0 to disable damage)
+    damage_per_second: 0.5
+    # Biomes where hail can occur
+    allowed_biomes:
+      - PLAINS
+      - FOREST
+      - BIRCH_FOREST
+      - DARK_FOREST
+      - WINDSWEPT_HILLS
+      - WINDSWEPT_FOREST
+
+  # Weather transition timing
+  transitions:
+    # Time between each progression step (in minutes)
+    light_to_heavy_rain: 3
+    heavy_rain_to_thunderstorm: 2
+    thunderstorm_to_clearing: 4
+    clearing_to_clear: 2
+aurora:
+  # Enable Aurora Borealis in Arctic zones
+  enabled: true
+
+  # Only show aurora during night hours
+  night_only: true
+
+  # Chance per minute for aurora to appear (in Arctic zones during clear weather)
+  chance_per_minute: 15
+
+  # Aurora colors (RGB values)
+  colors:
+    - "0,255,100"    # Green
+    - "0,100,255"    # Blue
+    - "255,0,255"    # Purple
+    - "0,255,255"    # Cyan
+    - "100,255,0"    # Lime
+
+  # Particle settings
+  particles:
+    count: 30          # Particles per aurora effect
+    radius: 15         # Base radius of aurora
+    height_offset: 30  # Height above player
+
+# ======= HEAT MIRAGE SYSTEM =======
+heat_mirages:
+  # Enable heat mirages in Desert zones
+  enabled: true
+
+  # Only show during day hours
+  day_only: true
+
+  # Chance per minute for mirages to appear (in Desert zones during clear weather)
+  chance_per_minute: 20
+
+  # Enhanced chance during droughts
+  drought_chance_multiplier: 2.0
+
+  # Particle settings
+  particles:
+    count: 20
+    range: 30          # Range around player
+    shimmer_speed: 200 # Speed of shimmer effect
+
+# ======= PERFORMANCE SETTINGS =======
+performance:
+  # Particle optimization
+  particles:
+    # Reduce particles when many players are nearby
+    optimize_for_player_count: true
+
+    # Maximum particles per player regardless of effects
+    max_particles_per_player: 150
+
+    # Update frequency for climate effects (in ticks)
+    climate_update_interval: 20      # Every second
+    temperature_update_interval: 1200 # Every minute
+
+  # Caching
+  cache:
+    # How long to cache player zone detection (in seconds)
+    player_zone_cache_duration: 30
+
+    # Clear cache when player moves this many blocks
+    cache_clear_distance: 50
+
+# ======= INTEGRATION SETTINGS =======
+integration:
+  # RealisticSeasons integration
+  realistic_seasons:
+    # Use RealisticSeasons time system for weather progression
+    use_time_system: true
+
+    # Use RealisticSeasons temperature for base calculations
+    use_temperature_system: true
+
+    # Enhanced seasonal effects when RealisticSeasons is present
+    enhanced_seasonal_effects: true
+
+# ======= DEBUG AND LOGGING =======
+debug:
+  # Enable debug messages
+  enabled: false
+
+  # Log zone changes for players
+  log_zone_changes: false
+
+  # Log temperature calculations
+  log_temperature_changes: false
+
+  # Log drought events
+  log_drought_events: true
+
+# ======= PERMISSIONS AND NOTIFICATIONS =======
+notifications:
+  # Permission required to see weather notifications
+  permission: "orbisclimate.notifications"
+
+  # Send zone change notifications to players
+  zone_change_notifications: true
+
+  # Send drought start/end notifications
+  drought_notifications: true
+
+  # Send temperature extreme warnings
+  temperature_warnings: true
