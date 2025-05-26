@@ -1,386 +1,7 @@
-# OrbisClimate Configuration
-# A realistic climate system with regional zones and multi-day weather tracking
+# OrbisClimate Optimized Configuration
+# Performance-focused settings for better server performance
 
-# ======= WIND SYSTEM =======
-wind:
-  # Enable or disable the wind system entirely
-  enabled: true
-
-  # How many blocks to check above a player to determine if they're indoors
-  # Higher values = better detection of high ceilings but more performance cost
-  # Default: 50 blocks (suitable for large buildings)
-  interior_height_distance: 50
-
-  # Minimum height for wind effects (prevents wind in valleys/underground)
-  min_height: 50
-
-  # Maximum number of particles to show per player during wind events
-  # Higher values = more visual effect but may cause lag
-  max_particles: 100
-
-  # How far around the player to spawn wind particles (in blocks)
-  particle_range: 10.0
-
-  # Wind event chances (percentage chance every 30 seconds)
-  # These base chances are modified by seasonal multipliers:
-  # Winter: +40%, Spring: +20%, Autumn: +30%, Summer: -20%
-  chances:
-    clear_weather: 10.0      # 10% chance during clear weather
-    rain: 25.0               # 25% chance during rain
-    snow: 15.0               # 15% chance during snow
-    thunderstorm: 100.0      # 100% chance during thunderstorms
-
-  # How long wind events last (in seconds)
-  # Duration is also modified by seasons:
-  # Winter: +30%, Spring: +10%, Autumn: +20%, Summer: no change
-  duration:
-    min_seconds: 30          # Minimum duration
-    max_seconds: 120         # Maximum duration
-
-# ======= BLIZZARD SYSTEM =======
-blizzard:
-  damage: 1.0                    # Damage per effect tick
-  min_freezing_height: 60        # Minimum Y level for effects
-  particle_range: 20             # Particle spawn radius
-  particle_y_range: 30           # Vertical particle range
-  particle_multiplier: 1.0       # Particle density multiplier
-  temperature_threshold: 0.15    # Biome temperature threshold
-
-# ======= SANDSTORM SYSTEM =======
-sandstorm:
-  min_height: 62              # Minimum Y level for effects
-  particle_range: 15          # Particle spawn radius
-  particle_y_range: 25        # Vertical particle range
-  particle_multiplier: 1.5    # Particle density (1.5x normal)
-  blindness_duration: 100     # Blindness duration (5 seconds)
-  slowness_duration: 100      # Slowness duration (5 seconds)
-  slowness_amplifier: 1       # Slowness level (0=I, 1=II, 2=III)
-
-# ======= CLIMATE ZONE SYSTEM =======
-# Configure different climate zones per world
-# Each zone can be defined by biomes OR coordinate boundaries
-
-climate_zones:
-  # World name (e.g., "world", "world_nether", "world_the_end")
-  world:
-    arctic:
-      enabled: true
-      # Use coordinate-based detection instead of biomes
-      use_coordinates: false
-      # Temperature modifier for this zone (multiplier)
-      temperature_modifier: 0.7  # 30% colder than base
-
-      # Biome-based zone definition (used when use_coordinates: false)
-      biomes:
-        - SNOWY_PLAINS
-        - SNOWY_TAIGA
-        - SNOWY_SLOPES
-        - SNOWY_BEACH
-        - FROZEN_RIVER
-        - FROZEN_OCEAN
-        - DEEP_FROZEN_OCEAN
-        - ICE_SPIKES
-        - GROVE
-        - JAGGED_PEAKS
-        - FROZEN_PEAKS
-        - TAIGA
-
-      # Coordinate-based zone definition (used when use_coordinates: true)
-      coordinates:
-        min_x: -2000
-        max_x: -1000
-        min_z: -2000
-        max_z: 2000
-        min_y: -64
-        max_y: 320
-
-    temperate:
-      enabled: true
-      use_coordinates: false
-      temperature_modifier: 1.0  # Normal temperature
-
-      biomes:
-        - PLAINS
-        - FOREST
-        - BIRCH_FOREST
-        - DARK_FOREST
-        - FLOWER_FOREST
-        - RIVER
-        - BEACH
-        - OCEAN
-        - DEEP_OCEAN
-        - LUKEWARM_OCEAN
-        - WARM_OCEAN
-        - MUSHROOM_FIELDS
-        - WINDSWEPT_HILLS
-        - WINDSWEPT_FOREST
-
-      coordinates:
-        min_x: -1000
-        max_x: 1000
-        min_z: -2000
-        max_z: 2000
-        min_y: -64
-        max_y: 320
-
-    desert:
-      enabled: true
-      use_coordinates: false
-      temperature_modifier: 1.4  # 40% hotter than base
-
-      biomes:
-        - DESERT
-        - BADLANDS
-        - ERODED_BADLANDS
-        - WOODED_BADLANDS
-        - SAVANNA
-        - SAVANNA_PLATEAU
-        - WINDSWEPT_SAVANNA
-
-      coordinates:
-        min_x: 1000
-        max_x: 2000
-        min_z: -2000
-        max_z: 2000
-        min_y: -64
-        max_y: 320
-
-  # Example for a custom world with coordinate-based zones
-  survival_world:
-    arctic:
-      enabled: true
-      use_coordinates: true
-      temperature_modifier: 0.6
-
-      biomes: []  # Empty when using coordinates
-
-      coordinates:
-        min_x: -5000
-        max_x: -2000
-        min_z: -5000
-        max_z: 5000
-        min_y: 50
-        max_y: 320
-
-    temperate:
-      enabled: true
-      use_coordinates: true
-      temperature_modifier: 1.0
-
-      biomes: []
-
-      coordinates:
-        min_x: -2000
-        max_x: 2000
-        min_z: -5000
-        max_z: 5000
-        min_y: -64
-        max_y: 320
-
-    desert:
-      enabled: true
-      use_coordinates: true
-      temperature_modifier: 1.5
-
-      biomes: []
-
-      coordinates:
-        min_x: 2000
-        max_x: 5000
-        min_z: -5000
-        max_z: 5000
-        min_y: 40
-        max_y: 320
-
-# ======= DROUGHT SYSTEM =======
-drought:
-  # Minimum consecutive clear days to trigger drought
-  min_clear_days: 5
-
-  # Maximum drought duration in days (will end when weather changes or max reached)
-  max_duration_days: 15
-
-  # Effects during drought
-  effects:
-    # Additional temperature increase during drought
-    temperature_bonus: 15
-
-    # Heat exhaustion effects
-    heat_exhaustion:
-      enabled: true
-      # Chance per minute to apply heat exhaustion effects
-      chance_per_minute: 25
-      # Effects to apply (potion effects)
-      effects:
-        - SLOWNESS:1:60   # Slowness I for 3 seconds
-        - HUNGER:0:100    # Hunger for 5 seconds
-
-    # Crop growth effects
-    crop_effects:
-      enabled: true
-      # Chance for crops to wither during drought
-      wither_chance: 10
-      # Growth speed modifier (0.5 = 50% slower)
-      growth_modifier: 0.3
-
-# ======= TEMPERATURE SYSTEM =======
-temperature:
-  # Enable temperature-based effects
-  enabled: true
-
-  # Base temperatures for each climate zone (in Celsius)
-  base_temperatures:
-    arctic: -15
-    temperate: 15
-    desert: 35
-
-  # Temperature effects on players
-  player_effects:
-    # Cold effects (below 0°C)
-    cold:
-      # Temperature thresholds for different cold levels
-      mild_cold: 0      # Above 0°C
-      cold: -10         # Below -10°C
-      severe_cold: -25  # Below -25°C
-
-      # Effects for each level
-      effects:
-        mild_cold: []
-        cold:
-          - SLOWNESS:0:100  # Slowness I for 5 seconds
-        severe_cold:
-          - SLOWNESS:1:100  # Slowness II for 5 seconds
-          - WITHER:0:60     # Wither I for 3 seconds (cold damage)
-
-    # Heat effects (above 30°C)
-    heat:
-      mild_heat: 30     # Above 30°C
-      hot: 40           # Above 40°C
-      severe_heat: 50   # Above 50°C
-
-      effects:
-        mild_heat: []
-        hot:
-          - HUNGER:0:100    # Hunger for 5 seconds
-        severe_heat:
-          - HUNGER:1:100    # Hunger II for 5 seconds
-          - SLOWNESS:0:100  # Slowness I for 5 seconds
-
-# ======= WEATHER PROGRESSION SYSTEM =======
-weather_progression:
-  # Enable progressive weather changes (Clear -> Pre-storm -> Light rain -> Heavy rain -> Thunderstorm)
-  enabled: true
-
-  # Pre-storm phase duration (lightning warnings before storm)
-  pre_storm_duration_minutes: 5
-
-  # Lightning warnings before thunderstorms
-  lightning_warnings:
-    enabled: true
-    # Interval between lightning warning flashes (in seconds)
-    interval_seconds: 30
-    # Number of warnings before storm arrives
-    warning_count: 6
-
-  # Hail system during heavy rain
-  hail:
-    enabled: true
-    # Chance for hail to occur during heavy rain (0.0 to 1.0)
-    chance_during_rain: 0.3
-    # How long hail lasts (in minutes)
-    duration_minutes: 3
-    # Hail damage to players (set to 0 to disable damage)
-    damage_per_second: 0.5
-    # Biomes where hail can occur
-    allowed_biomes:
-      - PLAINS
-      - FOREST
-      - BIRCH_FOREST
-      - DARK_FOREST
-      - WINDSWEPT_HILLS
-      - WINDSWEPT_FOREST
-
-  # Weather transition timing
-  transitions:
-    # Time between each progression step (in minutes)
-    light_to_heavy_rain: 3
-    heavy_rain_to_thunderstorm: 2
-    thunderstorm_to_clearing: 4
-    clearing_to_clear: 2
-
-# ======= AURORA SYSTEM =======
-aurora:
-  # Enable Aurora Borealis in Arctic zones
-  enabled: true
-
-  # Only show aurora during night hours
-  night_only: true
-
-  # Chance per minute for aurora to appear (in Arctic zones during clear weather)
-  chance_per_minute: 15
-
-  # Aurora colors (RGB values)
-  colors:
-    - "0,255,100"    # Green
-    - "0,100,255"    # Blue
-    - "255,0,255"    # Purple
-    - "0,255,255"    # Cyan
-    - "100,255,0"    # Lime
-
-  # Particle settings
-  particles:
-    count: 30          # Particles per aurora effect
-    radius: 15         # Base radius of aurora
-    height_offset: 30  # Height above player
-
-# ======= HEAT MIRAGE SYSTEM =======
-heat_mirages:
-  # Enable heat mirages in Desert zones
-  enabled: true
-
-  # Only show during day hours
-  day_only: true
-
-  # Chance per minute for mirages to appear (in Desert zones during clear weather)
-  chance_per_minute: 20
-
-  # Enhanced chance during droughts
-  drought_chance_multiplier: 2.0
-
-  # Particle settings
-  particles:
-    count: 20
-    range: 30          # Range around player
-    shimmer_speed: 200 # Speed of shimmer effect
-
-# ======= DYNAMIC SOUND SYSTEM =======
-dynamic_sounds:
-  # Enable dynamic ambient sounds
-  enabled: true
-
-  # Volume multiplier for sounds when indoors
-  indoor_volume_multiplier: 0.3
-
-  # How often to update sounds (in ticks, 20 = 1 second)
-  update_interval_ticks: 60
-
-  # Seasonal sound variations
-  seasonal_sounds:
-    enabled: true
-    # Volume multiplier for seasonal sounds
-    volume_multiplier: 0.8
-
-  # Time-of-day sounds
-  time_sounds:
-    enabled: true
-    # Night sounds (owls, wolves, etc.)
-    night_sounds: true
-    # Dawn chorus
-    dawn_sounds: true
-    # Dusk ambience
-    dusk_sounds: true
-
-# ======= PERFORMANCE SETTINGS =======
+# ======= PERFORMANCE SETTINGS (PRIORITY) =======
 performance:
   # Particle optimization
   particles:
@@ -388,11 +9,11 @@ performance:
     optimize_for_player_count: true
 
     # Maximum particles per player regardless of effects
-    max_particles_per_player: 150
+    max_particles_per_player: 100
 
     # Update frequency for climate effects (in ticks)
-    climate_update_interval: 20      # Every second
-    temperature_update_interval: 1200 # Every minute
+    climate_update_interval: 40      # Every 2 seconds instead of 1
+    temperature_update_interval: 2400 # Every 2 minutes instead of 1
 
     # Use batch processing for particles (reduces lag)
     use_batch_processing: true
@@ -400,17 +21,30 @@ performance:
     # Distance-based Level of Detail (LOD)
     use_distance_lod: true
 
+    # View frustum culling - don't render particles behind players
+    use_view_culling: true
+    fov_threshold: -0.5  # 120 degree field of view
+
+    # Adaptive quality based on TPS
+    adaptive_quality: true
+    min_tps_threshold: 15.0  # Below this TPS, reduce effects
+    quality_reduction_factor: 0.5  # Multiply particle count by this when low TPS
+
   # Caching
   cache:
     # How long to cache player zone detection (in seconds)
-    player_zone_cache_duration: 30
+    player_zone_cache_duration: 60
 
     # Clear cache when player moves this many blocks
-    cache_clear_distance: 50
+    cache_clear_distance: 100
 
     # Cache exposure calculations for indoor detection
     cache_exposure_calculations: true
-    exposure_cache_duration: 15
+    exposure_cache_duration: 30
+
+    # Cache biome lookups
+    cache_biome_lookups: true
+    biome_cache_duration: 120
 
   # Advanced optimizations
   advanced:
@@ -421,154 +55,301 @@ performance:
     distance_optimization: true
 
     # Maximum distance for full effects
-    max_effect_distance: 100
+    max_effect_distance: 80
+
+    # Skip effects for players with low frame rates
+    skip_effects_low_fps: true
+    min_fps_threshold: 30
+
+    # Intelligent effect scaling
+    smart_scaling: true
+    player_density_threshold: 10  # Start reducing effects when 10+ players nearby
+
+# ======= PERFORMANCE MONITORING =======
+monitoring:
+  # Enable performance monitoring
+  enabled: true
+
+  # Log warnings when TPS drops below threshold
+  tps_warning_threshold: 18.0
+
+  # Automatically reduce effects when performance is poor
+  auto_reduce_effects: true
+
+  # Monitor memory usage
+  memory_monitoring: true
+  memory_warning_threshold: 85  # Percentage
+
+  # Track particle counts per player
+  track_particle_counts: true
+  max_particles_per_player_warning: 150
+
+# ======= WIND SYSTEM (OPTIMIZED) =======
+wind:
+  enabled: true
+  interior_height_distance: 30  # Reduced from 50 for better performance
+  min_height: 50
+  max_particles: 50  # Reduced from 100
+  particle_range: 8.0  # Reduced from 10.0
+
+  # Optimized wind chances
+  chances:
+    clear_weather: 8.0      # Slightly reduced
+    rain: 20.0              # Reduced from 25.0
+    snow: 12.0              # Reduced from 15.0
+    thunderstorm: 100.0     # Keep high for storms
+
+  duration:
+    min_seconds: 25         # Slightly reduced
+    max_seconds: 90         # Reduced from 120
+
+# ======= BLIZZARD SYSTEM (OPTIMIZED) =======
+blizzard:
+  damage: 1.0
+  min_freezing_height: 60
+  particle_range: 15        # Reduced from 20
+  particle_y_range: 25      # Reduced from 30
+  particle_multiplier: 0.8  # Reduced from 1.0
+  temperature_threshold: 0.15
+
+# ======= SANDSTORM SYSTEM (OPTIMIZED) =======
+sandstorm:
+  min_height: 62
+  particle_range: 12        # Reduced from 15
+  particle_y_range: 20      # Reduced from 25
+  particle_multiplier: 1.2  # Reduced from 1.5
+  blindness_duration: 100
+  slowness_duration: 100
+  slowness_amplifier: 1
+
+# ======= CLIMATE ZONE SYSTEM (OPTIMIZED) =======
+climate_zones:
+  # Simplified world configuration for better performance
+  world:
+    arctic:
+      enabled: true
+      use_coordinates: false  # Biome-based is more efficient
+      temperature_modifier: 0.7
+      biomes:
+        - SNOWY_PLAINS
+        - SNOWY_TAIGA
+        - FROZEN_OCEAN
+        - ICE_SPIKES
+        - TAIGA
+
+    temperate:
+      enabled: true
+      use_coordinates: false
+      temperature_modifier: 1.0
+      biomes:
+        - PLAINS
+        - FOREST
+        - OCEAN
+        - RIVER
+        - BEACH
+
+    desert:
+      enabled: true
+      use_coordinates: false
+      temperature_modifier: 1.4
+      biomes:
+        - DESERT
+        - BADLANDS
+        - SAVANNA
+
+# ======= DROUGHT SYSTEM (SIMPLIFIED) =======
+drought:
+  min_clear_days: 7  # Increased to make droughts less frequent
+  max_duration_days: 10  # Reduced from 15
+
+  effects:
+    temperature_bonus: 12  # Reduced from 15
+
+    heat_exhaustion:
+      enabled: true
+      chance_per_minute: 15  # Reduced from 25
+      effects:
+        - SLOWNESS:0:60   # Reduced duration
+
+    crop_effects:
+      enabled: false  # Disabled for performance
+
+# ======= TEMPERATURE SYSTEM (OPTIMIZED) =======
+temperature:
+  enabled: true
+
+  base_temperatures:
+    arctic: -15
+    temperate: 15
+    desert: 35
+
+  player_effects:
+    cold:
+      mild_cold: 0
+      cold: -10
+      severe_cold: -25
+
+      effects:
+        mild_cold: []
+        cold:
+          - SLOWNESS:0:80  # Reduced duration
+        severe_cold:
+          - SLOWNESS:1:80
+          - WITHER:0:40
+
+    heat:
+      mild_heat: 30
+      hot: 40
+      severe_heat: 50
+
+      effects:
+        mild_heat: []
+        hot:
+          - HUNGER:0:80
+        severe_heat:
+          - HUNGER:1:80
+          - SLOWNESS:0:80
+
+# ======= WEATHER PROGRESSION (SIMPLIFIED) =======
+weather_progression:
+  enabled: true
+  pre_storm_duration_minutes: 3  # Reduced from 5
+
+  lightning_warnings:
+    enabled: true
+    interval_seconds: 45  # Increased from 30
+    warning_count: 4      # Reduced from 6
+
+  hail:
+    enabled: true
+    chance_during_rain: 0.2  # Reduced from 0.3
+    duration_minutes: 2      # Reduced from 3
+    damage_per_second: 0.3   # Reduced from 0.5
+    allowed_biomes:
+      - PLAINS
+      - FOREST
+
+  transitions:
+    light_to_heavy_rain: 4   # Increased from 3
+    heavy_rain_to_thunderstorm: 3  # Increased from 2
+    thunderstorm_to_clearing: 5     # Increased from 4
+    clearing_to_clear: 3            # Increased from 2
+
+# ======= AURORA SYSTEM (OPTIMIZED) =======
+aurora:
+  enabled: true
+  night_only: true
+  chance_per_minute: 10  # Reduced from 15
+
+  colors:
+    - "0,255,100"
+    - "0,100,255"
+    - "255,0,255"
+
+  particles:
+    count: 20          # Reduced from 30
+    radius: 12         # Reduced from 15
+    height_offset: 25  # Reduced from 30
+
+# ======= HEAT MIRAGE SYSTEM (OPTIMIZED) =======
+heat_mirages:
+  enabled: true
+  day_only: true
+  chance_per_minute: 15  # Reduced from 20
+  drought_chance_multiplier: 1.5  # Reduced from 2.0
+
+  particles:
+    count: 15         # Reduced from 20
+    range: 25         # Reduced from 30
+    shimmer_speed: 300  # Slower for less CPU usage
+
+# ======= DYNAMIC SOUND SYSTEM (OPTIMIZED) =======
+dynamic_sounds:
+  enabled: true
+  indoor_volume_multiplier: 0.3
+  update_interval_ticks: 100  # Reduced frequency from 60
+
+  seasonal_sounds:
+    enabled: true
+    volume_multiplier: 0.6  # Reduced from 0.8
+
+  time_sounds:
+    enabled: true
+    night_sounds: true
+    dawn_sounds: false    # Disabled for performance
+    dusk_sounds: false    # Disabled for performance
 
 # ======= INTEGRATION SETTINGS =======
 integration:
-  # RealisticSeasons integration
   realistic_seasons:
-    # Use RealisticSeasons time system for weather progression
     use_time_system: true
-
-    # Use RealisticSeasons temperature for base calculations
     use_temperature_system: true
-
-    # Enhanced seasonal effects when RealisticSeasons is present
-    enhanced_seasonal_effects: true
+    enhanced_seasonal_effects: false  # Disabled for performance
 
 # ======= PLAYER PREFERENCES =======
 player_settings:
-  # Allow players to toggle particles individually
   allow_particle_toggle: true
-
-  # Default particle setting for new players
   default_particles_enabled: true
-
-  # Save player preferences (requires restart to take effect)
   save_preferences: false
 
-# ======= ENHANCED FEATURES =======
+# ======= ENHANCED FEATURES (SELECTIVE) =======
 enhanced_features:
-  # Wind direction trails (shows air currents)
   wind_trails:
     enabled: true
-    stream_count_multiplier: 1.0
-    trail_length: 6
+    stream_count_multiplier: 0.8  # Reduced
+    trail_length: 4               # Reduced from 6
 
-  # Particle walls during blizzards
   blizzard_walls:
     enabled: true
-    wall_density: 0.6
-    wall_height: 6
-    wall_width: 15
+    wall_density: 0.4    # Reduced from 0.6
+    wall_height: 4       # Reduced from 6
+    wall_width: 12       # Reduced from 15
 
-  # Seasonal wildlife effects
   seasonal_wildlife:
-    enabled: true
-    # Bird migration in spring
-    spring_birds: true
-    # Insect sounds in summer
-    summer_insects: true
-    # Falling leaves in autumn
-    autumn_leaves: true
-    # Wildlife tracks in winter
-    winter_tracks: true
+    enabled: false  # Disabled for performance
 
-  # Enhanced weather transitions
   weather_transitions:
     enabled: true
-    # Storm buildup effects
     pre_storm_effects: true
-    # Sunbeams after storms
-    post_storm_effects: true
-    # Enhanced lightning during storms
+    post_storm_effects: false     # Disabled for performance
     enhanced_lightning: true
 
-# ======= DEBUG AND LOGGING =======
+# ======= DEBUG AND LOGGING (MINIMAL) =======
 debug:
-  # Enable debug messages
   enabled: false
-
-  # Log zone changes for players
   log_zone_changes: false
-
-  # Log temperature calculations
   log_temperature_changes: false
-
-  # Log drought events
   log_drought_events: true
-
-  # Log performance metrics
   log_performance: false
-
-  # Log particle optimizations
   log_particle_optimizations: false
 
-# ======= PERMISSIONS AND NOTIFICATIONS =======
+# ======= NOTIFICATIONS (OPTIMIZED) =======
 notifications:
-  # Permission required to see weather notifications
   permission: "orbisclimate.notifications"
-
-  # Send zone change notifications to players
-  zone_change_notifications: true
-
-  # Send drought start/end notifications
+  zone_change_notifications: false    # Disabled to reduce spam
   drought_notifications: true
-
-  # Send temperature extreme warnings
   temperature_warnings: true
-
-  # Send wind event notifications
-  wind_event_notifications: true
-
-  # Send weather progression notifications
+  wind_event_notifications: false     # Disabled to reduce spam
   weather_progression_notifications: true
 
-# ======= WORLD-SPECIFIC OVERRIDES =======
-# You can override settings for specific worlds
-world_overrides:
-  # Example: Different settings for a specific world
-  example_world:
-    # Override wind settings for this world
-    wind:
-      enabled: false
+# ======= COMPATIBILITY =======
+compatibility:
+  # Disable features that conflict with other plugins
+  disable_weather_override: false
 
-    # Override temperature settings
-    temperature:
-      base_temperatures:
-        arctic: -25
-        temperate: 10
-        desert: 45
+  # Work with other particle plugins
+  respect_particle_limits: true
 
-    # Disable certain features
-    aurora:
-      enabled: false
+  # Reduce effects near other plugin areas
+  smart_area_detection: true
 
-    dynamic_sounds:
-      enabled: false
-
-# ======= EXPERIMENTAL FEATURES =======
+# ======= EXPERIMENTAL FEATURES (DISABLED) =======
 experimental:
-  # WARNING: These features are experimental and may cause issues
-
-  # Advanced particle physics
   particle_physics:
     enabled: false
-    gravity_effect: true
-    wind_resistance: true
-
-  # Realistic air pressure effects
   air_pressure:
     enabled: false
-    altitude_effects: true
-    weather_pressure_changes: true
-
-  # Dynamic biome temperature
   dynamic_biome_temp:
     enabled: false
-    real_time_calculation: true
-
-  # Machine learning weather prediction
   ml_weather:
     enabled: false
-    learning_enabled: false

@@ -17,12 +17,13 @@ import org.bukkit.util.Vector;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 public class WindManager {
 
     private final OrbisClimate plugin;
     private final Random random;
+    private final WeatherForecast weatherForecast;
+    private PerformanceMonitor performanceMonitor;
     private BukkitTask windTask;
 
     // Wind configuration
@@ -55,12 +56,11 @@ public class WindManager {
     private final Map<String, Long> exposureCacheTimestamps = new ConcurrentHashMap<>();
     private static final long EXPOSURE_CACHE_DURATION = 15000; // 15 seconds
 
-    private final WeatherForecast weatherForecast;
-
     public WindManager(OrbisClimate plugin, Random random, WeatherForecast weatherForecast) {
         this.plugin = plugin;
         this.random = random;
         this.weatherForecast = weatherForecast;
+        this.performanceMonitor = plugin.getPerformanceMonitor();
 
         loadConfig();
         initializeBannedBlocks();
@@ -69,57 +69,123 @@ public class WindManager {
 
     // PERFORMANCE OPTIMIZATION: Batch particle processing
     private static class ParticleBatch {
-        private final List<ParticleData> particles = new ArrayList<>();
-        private static final int MAX_BATCH_SIZE = 50;
+        private final Map<Player, PlayerParticleQueue> playerQueues = new HashMap<>();
+        private static final int MAX_PARTICLES_PER_PLAYER_PER_TICK = 20;
+        private static final int BATCH_FLUSH_INTERVAL = 2; // Flush every 2 ticks
+        private int tickCounter = 0;
         
         public void addParticle(Player player, Location loc, Particle type, Object data, Vector velocity) {
-            particles.add(new ParticleData(player, loc, type, data, velocity));
+            PlayerParticleQueue queue = playerQueues.computeIfAbsent(player, k -> new PlayerParticleQueue());
             
-            if (particles.size() >= MAX_BATCH_SIZE) {
-                flush();
+            if (queue.size() >= MAX_PARTICLES_PER_PLAYER_PER_TICK) {
+                return; // Drop particles if queue is full
             }
+            
+            queue.addParticle(new OptimizedParticleData(loc, velocity, type, data));
         }
         
         public void flush() {
-            if (particles.isEmpty()) return;
+            tickCounter++;
+            boolean shouldFlush = tickCounter >= BATCH_FLUSH_INTERVAL;
             
-            // Group particles by player for better performance
-            Map<Player, List<ParticleData>> playerParticles = particles.stream()
-                .collect(Collectors.groupingBy(p -> p.player));
-                
-            for (Map.Entry<Player, List<ParticleData>> entry : playerParticles.entrySet()) {
+            for (Map.Entry<Player, PlayerParticleQueue> entry : playerQueues.entrySet()) {
                 Player player = entry.getKey();
-                List<ParticleData> playerBatch = entry.getValue();
+                PlayerParticleQueue queue = entry.getValue();
                 
-                // Spawn all particles for this player in one batch
-                for (ParticleData p : playerBatch) {
-                    if (p.data != null) {
-                        player.spawnParticle(p.type, p.location, 1, 
-                            p.velocity.getX(), p.velocity.getY(), p.velocity.getZ(), 0, p.data);
-                    } else {
-                        player.spawnParticle(p.type, p.location, 1,
-                            p.velocity.getX(), p.velocity.getY(), p.velocity.getZ(), 0);
-                    }
+                if (!player.isOnline()) {
+                    continue;
+                }
+                
+                if (shouldFlush || queue.isFull()) {
+                    queue.flush(player);
                 }
             }
             
-            particles.clear();
+            if (shouldFlush) {
+                tickCounter = 0;
+                // Clean up offline players
+                playerQueues.entrySet().removeIf(entry -> !entry.getKey().isOnline());
+            }
         }
         
-        private static class ParticleData {
-            final Player player;
-            final Location location;
-            final Particle type;
-            final Object data;
-            final Vector velocity;
+        private static class PlayerParticleQueue {
+            private final List<OptimizedParticleData> particles = new ArrayList<>();
             
-            ParticleData(Player player, Location loc, Particle type, Object data, Vector velocity) {
-                this.player = player;
-                this.location = loc.clone();
-                this.type = type;
-                this.data = data;
-                this.velocity = velocity.clone();
+            public void addParticle(OptimizedParticleData particle) {
+                particles.add(particle);
             }
+            
+            public int size() {
+                return particles.size();
+            }
+            
+            public boolean isFull() {
+                return particles.size() >= MAX_PARTICLES_PER_PLAYER_PER_TICK;
+            }
+            
+            public void flush(Player player) {
+                if (particles.isEmpty()) return;
+                
+                try {
+                    // Spawn all particles for this player
+                    for (OptimizedParticleData particle : particles) {
+                        Location loc = particle.getLocation(player.getWorld());
+                        Vector vel = particle.getVelocity();
+                        
+                        if (particle.hasExtraData()) {
+                            Object data = particle.getExtraData();
+                            player.spawnParticle(particle.getParticleType(), loc, 1,
+                                vel.getX(), vel.getY(), vel.getZ(), 0, data);
+                        } else {
+                            player.spawnParticle(particle.getParticleType(), loc, 1,
+                                vel.getX(), vel.getY(), vel.getZ(), 0);
+                        }
+                    }
+                } catch (Exception e) {
+                    // Silently handle any particle spawning errors
+                } finally {
+                    particles.clear();
+                }
+            }
+        }
+    }
+
+    // Memory-optimized particle data structure
+    private static final class OptimizedParticleData {
+        private final float x, y, z;
+        private final float vx, vy, vz;
+        private final byte particleType;
+        private final Object extraData;
+        
+        public OptimizedParticleData(Location loc, Vector velocity, Particle type, Object data) {
+            this.x = (float) loc.getX();
+            this.y = (float) loc.getY();
+            this.z = (float) loc.getZ();
+            this.vx = (float) velocity.getX();
+            this.vy = (float) velocity.getY();
+            this.vz = (float) velocity.getZ();
+            this.particleType = (byte) type.ordinal();
+            this.extraData = data;
+        }
+        
+        public Location getLocation(World world) {
+            return new Location(world, x, y, z);
+        }
+        
+        public Vector getVelocity() {
+            return new Vector(vx, vy, vz);
+        }
+        
+        public Particle getParticleType() {
+            return Particle.values()[particleType & 0xFF];
+        }
+        
+        public boolean hasExtraData() {
+            return extraData != null;
+        }
+        
+        public Object getExtraData() {
+            return extraData;
         }
     }
 
@@ -493,9 +559,20 @@ public class WindManager {
         }
     }
 
-    // NEW: Wind direction particle trails
+    // Wind direction particle trails
     private void createWindTrails(Player player, Vector windDirection, double force) {
-        int streamCount = (int) (3 + force * 5);
+        // Check if we should skip effects entirely
+        if (performanceMonitor != null && performanceMonitor.shouldSkipEffects(player)) {
+            return;
+        }
+        
+        // Reduce stream complexity in performance mode
+        double performanceMultiplier = performanceMonitor != null ? 
+            performanceMonitor.getPerformanceMultiplier() : 1.0;
+        
+        int baseStreamCount = (int) (3 + force * 5);
+        int streamCount = (int) (baseStreamCount * performanceMultiplier);
+        streamCount = Math.max(1, streamCount);
         
         for (int stream = 0; stream < streamCount; stream++) {
             createParticleStream(player, windDirection, force, stream);
@@ -517,8 +594,14 @@ public class WindManager {
         
         Location streamStart = playerLoc.clone().add(startOffset);
         
-        // Create particle trail flowing in wind direction
-        int particlesInStream = (int) (6 + force * 4);
+        // Adjust particles in stream based on performance
+        double performanceMultiplier = performanceMonitor != null ? 
+            performanceMonitor.getPerformanceMultiplier() : 1.0;
+            
+        int baseParticlesInStream = (int) (6 + force * 4);
+        int particlesInStream = (int) (baseParticlesInStream * performanceMultiplier);
+        particlesInStream = Math.max(1, particlesInStream);
+        
         Vector flowDirection = windDirection.clone().multiply(2.0);
         
         for (int i = 0; i < particlesInStream; i++) {
@@ -591,32 +674,35 @@ public class WindManager {
     }
 
     private void createWindParticles(Player player, Vector windDirection, double force) {
+        // Check if we should skip effects entirely
+        if (performanceMonitor != null && performanceMonitor.shouldSkipEffects(player)) {
+            return;
+        }
+        
         Location loc = player.getLocation();
         Biome biome = loc.getBlock().getBiome();
         Season currentSeason = weatherForecast.getCurrentSeason(player.getWorld());
         WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(player.getWorld());
 
-        // PERFORMANCE OPTIMIZATION: Distance-based LOD
+        // Get performance-adjusted particle count
         int baseParticleCount = calculateLODParticleCount(player, maxParticles);
+        int adjustedParticleCount = performanceMonitor != null ? 
+            performanceMonitor.getRecommendedParticleCount(baseParticleCount, player) : baseParticleCount;
         
-        // Seasonal particle count modifiers
-        double seasonalMultiplier = 1.0;
-        if (currentSeason != null) {
-            switch (currentSeason) {
-                case WINTER:
-                    seasonalMultiplier = 1.3;
-                    break;
-                case SPRING:
-                case FALL:
-                    seasonalMultiplier = 1.1;
-                    break;
-            }
+        // Apply seasonal multiplier
+        double seasonalMultiplier = getSeasonalMultiplier(currentSeason);
+        int particleCount = (int) (adjustedParticleCount * 0.4 * seasonalMultiplier * force);
+        particleCount = Math.max(2, Math.min(particleCount, maxParticles / 2));
+
+        // Track particles for performance monitoring
+        if (performanceMonitor != null) {
+            performanceMonitor.trackParticles(player, particleCount);
         }
 
-        int particleCount = (int) (baseParticleCount * 0.4 * seasonalMultiplier * force);
-        particleCount = Math.max(5, Math.min(particleCount, maxParticles / 2));
-
         BiomeParticleData particleData = getBiomeParticleData(biome, currentSeason, currentWeather);
+
+        // Use view culling if enabled
+        boolean useViewCulling = plugin.getConfig().getBoolean("performance.particles.use_view_culling", true);
 
         for (int i = 0; i < particleCount; i++) {
             double offsetX = (random.nextDouble() - 0.5) * particleRange;
@@ -624,6 +710,12 @@ public class WindManager {
             double offsetZ = (random.nextDouble() - 0.5) * particleRange;
 
             Location particleLoc = loc.clone().add(offsetX, offsetY, offsetZ);
+            
+            // Skip particles outside view if culling is enabled
+            if (useViewCulling && !isParticleVisible(player, particleLoc)) {
+                continue;
+            }
+            
             Vector velocity = windDirection.clone().multiply(force * 0.8);
 
             spawnBiomeParticleOptimized(player, particleLoc, velocity, force, particleData, true);
@@ -634,29 +726,98 @@ public class WindManager {
         }
     }
 
-    // PERFORMANCE OPTIMIZATION: Distance-based particle count calculation
-    private int calculateLODParticleCount(Player player, int baseCount) {
-        int nearbyPlayers = 0;
-        double avgDistance = 0;
+    // Helper method for seasonal multipliers
+    private double getSeasonalMultiplier(Season season) {
+        if (season == null) return 1.0;
         
-        for (Player other : player.getWorld().getPlayers()) {
-            if (!other.equals(player)) {
-                double distance = player.getLocation().distance(other.getLocation());
-                if (distance <= particleRange * 3) {
+        switch (season) {
+            case WINTER:
+                return 1.3;
+            case SPRING:
+            case FALL:
+                return 1.1;
+            case SUMMER:
+            default:
+                return 1.0;
+        }
+    }
+
+    // Enhanced LOD calculation with better performance scaling
+    private int calculateLODParticleCount(Player player, int baseCount) {
+        if (player == null || !player.isOnline()) {
+            return 0;
+        }
+        
+        // Get performance multiplier first
+        double performanceMultiplier = performanceMonitor != null ? 
+            performanceMonitor.getPerformanceMultiplier() : 1.0;
+        
+        baseCount = (int) (baseCount * performanceMultiplier);
+        
+        Location playerLoc = player.getLocation();
+        int nearbyPlayers = 0;
+        double totalDistance = 0;
+        
+        // Use squared distance to avoid sqrt() calls
+        double maxDistanceSquared = Math.pow(particleRange * 3, 2);
+        
+        try {
+            for (Player other : player.getWorld().getPlayers()) {
+                if (other == null || !other.isOnline() || other.equals(player)) {
+                    continue;
+                }
+                
+                double distanceSquared = playerLoc.distanceSquared(other.getLocation());
+                if (distanceSquared <= maxDistanceSquared) {
                     nearbyPlayers++;
-                    avgDistance += distance;
+                    totalDistance += Math.sqrt(distanceSquared);
                 }
             }
+        } catch (Exception e) {
+            return Math.max(1, baseCount / 2);
         }
         
         if (nearbyPlayers == 0) return baseCount;
         
-        avgDistance /= nearbyPlayers;
+        double avgDistance = totalDistance / nearbyPlayers;
         
-        double densityMultiplier = Math.max(0.2, 1.0 / (1 + nearbyPlayers * 0.3));
-        double distanceMultiplier = Math.max(0.3, 1.0 - (avgDistance / (particleRange * 2)));
+        // More aggressive scaling for better performance
+        double densityMultiplier = Math.max(0.1, 1.0 / (1 + nearbyPlayers * 0.4));
+        double distanceMultiplier = Math.max(0.2, 1.0 - (avgDistance / (particleRange * 2)));
         
-        return (int) (baseCount * densityMultiplier * distanceMultiplier);
+        int result = (int) (baseCount * densityMultiplier * distanceMultiplier);
+        return Math.max(1, Math.min(result, baseCount));
+    }
+
+    // Enhanced visibility check with configurable FOV
+    private boolean isParticleVisible(Player player, Location particleLocation) {
+        Location playerLoc = player.getLocation();
+        
+        // Quick distance check first
+        double distanceSquared = playerLoc.distanceSquared(particleLocation);
+        double maxViewDistanceSquared = Math.pow(particleRange * 1.2, 2);
+        
+        if (distanceSquared > maxViewDistanceSquared) {
+            return false;
+        }
+        
+        // Skip FOV check in performance mode for better performance
+        if (performanceMonitor != null && performanceMonitor.isPerformanceMode()) {
+            return true;
+        }
+        
+        // Check if particle is roughly in player's field of view
+        Vector toParticle = particleLocation.toVector().subtract(playerLoc.toVector());
+        if (toParticle.lengthSquared() < 0.01) return true;
+        
+        toParticle.normalize();
+        Vector playerDirection = playerLoc.getDirection().normalize();
+        
+        double dotProduct = toParticle.dot(playerDirection);
+        
+        // Configurable FOV - default 120 degrees (dot product > -0.5)
+        double fovThreshold = plugin.getConfig().getDouble("performance.particles.fov_threshold", -0.5);
+        return dotProduct > fovThreshold;
     }
 
     private BiomeParticleData getBiomeParticleData(Biome biome, Season season, WeatherForecast.WeatherType weather) {
@@ -754,7 +915,7 @@ public class WindManager {
         }
     }
 
-    // OPTIMIZED: Use batch processing for particles
+    // Use batch processing for particles
     private void spawnBiomeParticleOptimized(Player player, Location particleLoc, Vector velocity,
                                     double force, BiomeParticleData particleData, boolean isPrimary) {
 
@@ -785,13 +946,31 @@ public class WindManager {
         }
     }
 
+    public void clearPlayerCache(Player player) {
+        // Clear all player-specific cached data
+        String playerWorld = player.getWorld().getName();
+        locationExposureCache.entrySet().removeIf(entry -> 
+            entry.getKey().startsWith(playerWorld + ":"));
+        exposureCacheTimestamps.entrySet().removeIf(entry -> 
+            entry.getKey().startsWith(playerWorld + ":"));
+        
+        // Clean up performance monitor data
+        if (performanceMonitor != null) {
+            performanceMonitor.cleanupPlayer(player);
+        }
+    }
+
+    public void clearAllCaches() {
+        locationExposureCache.clear();
+        exposureCacheTimestamps.clear();
+    }
+
     public void shutdown() {
         if (windTask != null) {
             windTask.cancel();
         }
         worldWindData.clear();
-        locationExposureCache.clear();
-        exposureCacheTimestamps.clear();
+        clearAllCaches();
     }
 
     public void reloadConfig() {

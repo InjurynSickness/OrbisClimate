@@ -3,23 +3,91 @@ version: '1.0-SNAPSHOT'
 main: com.orbismc.orbisClimate.OrbisClimate
 api-version: '1.21'
 authors: [ InjurynSickness ]
-description: A realistic wind system plugin for Minecraft
+description: A realistic climate system plugin with advanced weather effects and performance optimization
 softdepend: [RealisticSeasons]
 
 commands:
+  climate:
+    description: Main OrbisClimate command for climate and weather control
+    usage: |
+      /climate - Show all available commands
+      /climate info - Show climate information for your location
+      /climate forecast - Show weather forecast
+      /climate temperature - Show temperature information
+      /climate zone - Show climate zone information
+      /climate toggle [on|off] - Toggle weather particles
+      /climate status - Show integration status
+      /climate reload - Reload configuration (Admin)
+      /climate weather <set|clear|info> - Weather control (Admin)
+      /climate performance <report|mode|optimize|clear> - Performance monitoring (Admin)
+      /climate debug - Show debug information (Admin)
+    permission: orbisclimate.use
+
   wind:
-    description: OrbisClimate wind commands
-    usage: /wind [reload|info] or /disasters [reload|info]
-    aliases: [disasters]
+    description: Alias for climate command (legacy support)
+    usage: Same as /climate
+    permission: orbisclimate.use
+
+  weather:
+    description: Alias for climate command (convenience)
+    usage: Same as /climate
     permission: orbisclimate.use
 
 permissions:
+  orbisclimate.*:
+    description: Grants all OrbisClimate permissions
+    default: false
+    children:
+      - orbisclimate.use
+      - orbisclimate.admin
+
   orbisclimate.use:
     description: Allows basic OrbisClimate commands
     default: true
+    children:
+      - orbisclimate.info
+      - orbisclimate.forecast
+      - orbisclimate.toggle
+      - orbisclimate.notifications
+
+  orbisclimate.info:
+    description: Allows viewing climate information
+    default: true
+
+  orbisclimate.forecast:
+    description: Allows viewing weather forecasts
+    default: true
+
+  orbisclimate.toggle:
+    description: Allows toggling personal weather effects
+    default: true
+
   orbisclimate.admin:
     description: Allows administrative OrbisClimate commands
     default: op
+    children:
+      - orbisclimate.use
+      - orbisclimate.reload
+      - orbisclimate.weather
+      - orbisclimate.performance
+      - orbisclimate.debug
+
+  orbisclimate.reload:
+    description: Allows reloading OrbisClimate configuration
+    default: op
+
+  orbisclimate.weather:
+    description: Allows weather control commands
+    default: op
+
+  orbisclimate.performance:
+    description: Allows performance monitoring commands
+    default: op
+
+  orbisclimate.debug:
+    description: Allows debug information commands
+    default: op
+
   orbisclimate.notifications:
-    description: Allows players to see wind event notifications
+    description: Allows players to see climate event notifications
     default: true
