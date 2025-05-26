@@ -45,6 +45,7 @@ public class WindCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(ChatColor.YELLOW + "/wind regenerate " + ChatColor.WHITE + "- Regenerate today's forecast");
             sender.sendMessage(ChatColor.YELLOW + "/wind status " + ChatColor.WHITE + "- Show integration status");
             sender.sendMessage(ChatColor.YELLOW + "/wind toggle [on|off] " + ChatColor.WHITE + "- Toggle particles on/off");
+            sender.sendMessage(ChatColor.YELLOW + "/wind weather " + ChatColor.WHITE + "- Weather control commands (Admin)");
             sender.sendMessage(ChatColor.YELLOW + "/wind debug " + ChatColor.WHITE + "- Show debug information (Admin)");
             return true;
         }
@@ -121,7 +122,6 @@ public class WindCommand implements CommandExecutor, TabCompleter {
                 showIntegrationStatus(sender);
                 break;
 
-            // NEW: Particle toggle command
             case "toggle":
                 if (!(sender instanceof Player)) {
                     sender.sendMessage(ChatColor.RED + "This command can only be used by players!");
@@ -141,6 +141,21 @@ public class WindCommand implements CommandExecutor, TabCompleter {
                     togglePlayer.sendMessage(ChatColor.GREEN + "Weather particles " + 
                         (setting ? "enabled" : "disabled") + "!");
                 }
+                break;
+
+            case "weather":
+                if (!sender.hasPermission("orbisclimate.admin")) {
+                    sender.sendMessage(ChatColor.RED + "You don't have permission to use this command!");
+                    return true;
+                }
+
+                if (!(sender instanceof Player)) {
+                    sender.sendMessage(ChatColor.RED + "This command can only be used by players!");
+                    return true;
+                }
+
+                Player weatherPlayer = (Player) sender;
+                handleWeatherCommand(weatherPlayer, args);
                 break;
 
             case "debug":
@@ -164,6 +179,142 @@ public class WindCommand implements CommandExecutor, TabCompleter {
         }
 
         return true;
+    }
+
+    private void handleWeatherCommand(Player player, String[] args) {
+        if (args.length < 2) {
+            player.sendMessage(ChatColor.GOLD + "=== Weather Control Commands ===");
+            player.sendMessage(ChatColor.YELLOW + "/wind weather set <type> [duration] " + ChatColor.WHITE + "- Set weather");
+            player.sendMessage(ChatColor.YELLOW + "/wind weather clear " + ChatColor.WHITE + "- Clear weather locks");
+            player.sendMessage(ChatColor.YELLOW + "/wind weather info " + ChatColor.WHITE + "- Show weather info");
+            player.sendMessage(ChatColor.WHITE + "Weather types: clear, light_rain, heavy_rain, thunderstorm, snow, blizzard, sandstorm");
+            return;
+        }
+
+        switch (args[1].toLowerCase()) {
+            case "set":
+                if (args.length < 3) {
+                    player.sendMessage(ChatColor.RED + "Usage: /wind weather set <type> [duration_minutes]");
+                    return;
+                }
+                
+                String weatherTypeName = args[2].toLowerCase();
+                WeatherForecast.WeatherType weatherType = parseWeatherType(weatherTypeName);
+                
+                if (weatherType == null) {
+                    player.sendMessage(ChatColor.RED + "Invalid weather type! Valid types: clear, light_rain, heavy_rain, thunderstorm, snow, blizzard, sandstorm");
+                    return;
+                }
+                
+                int duration = 10; // Default 10 minutes
+                if (args.length >= 4) {
+                    try {
+                        duration = Integer.parseInt(args[3]);
+                        if (duration < 1 || duration > 120) {
+                            player.sendMessage(ChatColor.RED + "Duration must be between 1 and 120 minutes!");
+                            return;
+                        }
+                    } catch (NumberFormatException e) {
+                        player.sendMessage(ChatColor.RED + "Invalid duration! Must be a number.");
+                        return;
+                    }
+                }
+                
+                weatherForecast.setWeather(player.getWorld(), weatherType, duration);
+                player.sendMessage(ChatColor.GREEN + "Weather set to " + weatherType.getDisplayName() + 
+                    " for " + duration + " minutes in " + player.getWorld().getName());
+                break;
+                
+            case "clear":
+                weatherForecast.clearWeatherLock(player.getWorld());
+                player.sendMessage(ChatColor.GREEN + "Weather lock cleared for " + player.getWorld().getName() + 
+                    ". Weather will now follow the natural forecast.");
+                break;
+                
+            case "info":
+                showDetailedWeatherInfo(player);
+                break;
+                
+            default:
+                player.sendMessage(ChatColor.RED + "Unknown weather command! Use '/wind weather' for help.");
+                break;
+        }
+    }
+
+    private WeatherForecast.WeatherType parseWeatherType(String typeName) {
+        switch (typeName.toLowerCase()) {
+            case "clear":
+                return WeatherForecast.WeatherType.CLEAR;
+            case "light_rain":
+            case "lightrain":
+            case "light":
+                return WeatherForecast.WeatherType.LIGHT_RAIN;
+            case "heavy_rain":
+            case "heavyrain":
+            case "heavy":
+            case "rain":
+                return WeatherForecast.WeatherType.HEAVY_RAIN;
+            case "thunderstorm":
+            case "thunder":
+            case "storm":
+                return WeatherForecast.WeatherType.THUNDERSTORM;
+            case "snow":
+                return WeatherForecast.WeatherType.SNOW;
+            case "blizzard":
+                return WeatherForecast.WeatherType.BLIZZARD;
+            case "sandstorm":
+            case "sand":
+                return WeatherForecast.WeatherType.SANDSTORM;
+            default:
+                return null;
+        }
+    }
+
+    private void showDetailedWeatherInfo(Player player) {
+        player.sendMessage(ChatColor.GOLD + "=== Detailed Weather Information ===");
+        
+        // Current weather state
+        WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(player.getWorld());
+        player.sendMessage(ChatColor.AQUA + "Current Weather: " + ChatColor.WHITE + currentWeather.getDisplayName());
+        
+        // Minecraft weather state
+        player.sendMessage(ChatColor.AQUA + "MC Storm: " + ChatColor.WHITE + player.getWorld().hasStorm());
+        player.sendMessage(ChatColor.AQUA + "MC Thunder: " + ChatColor.WHITE + player.getWorld().isThundering());
+        player.sendMessage(ChatColor.AQUA + "MC Weather Duration: " + ChatColor.WHITE + 
+            (player.getWorld().getWeatherDuration() / 20) + " seconds");
+        
+        if (player.getWorld().isThundering()) {
+            player.sendMessage(ChatColor.AQUA + "MC Thunder Duration: " + ChatColor.WHITE + 
+                (player.getWorld().getThunderDuration() / 20) + " seconds");
+        }
+        
+        // Time information
+        long time = player.getWorld().getTime();
+        int hour = (int) (((time + 6000) % 24000) / 1000);
+        player.sendMessage(ChatColor.AQUA + "Current Hour: " + ChatColor.WHITE + hour + ":00");
+        
+        // Show active weather systems
+        if (plugin.getBlizzardManager().isBlizzardActive(player.getWorld())) {
+            player.sendMessage(ChatColor.BLUE + "❄ Blizzard system is active");
+        }
+        if (plugin.getSandstormManager().isSandstormActive(player.getWorld())) {
+            player.sendMessage(ChatColor.YELLOW + "🌪 Sandstorm system is active");
+        }
+        if (windManager.hasActiveWind(player.getWorld())) {
+            player.sendMessage(ChatColor.GRAY + "💨 Wind system is active");
+        }
+        
+        // Weather progression
+        if (plugin.getWeatherProgressionManager() != null) {
+            WeatherProgressionManager.WeatherProgression progression = 
+                plugin.getWeatherProgressionManager().getWorldProgression(player.getWorld());
+            player.sendMessage(ChatColor.AQUA + "Weather Progression: " + ChatColor.WHITE + 
+                progression.name().toLowerCase().replace("_", " "));
+                
+            if (plugin.getWeatherProgressionManager().isHailActive(player.getWorld())) {
+                player.sendMessage(ChatColor.WHITE + "❄ Hail is currently active");
+            }
+        }
     }
 
     private void showClimateInfo(Player player) {
@@ -514,9 +665,17 @@ public class WindCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return Arrays.asList("reload", "info", "forecast", "temperature", "zone", "regenerate", "status", "toggle", "debug");
-        } else if (args.length == 2 && args[0].equalsIgnoreCase("toggle")) {
-            return Arrays.asList("on", "off");
+            return Arrays.asList("reload", "info", "forecast", "temperature", "zone", "regenerate", "status", "toggle", "weather", "debug");
+        } else if (args.length == 2) {
+            if (args[0].equalsIgnoreCase("toggle")) {
+                return Arrays.asList("on", "off");
+            } else if (args[0].equalsIgnoreCase("weather")) {
+                return Arrays.asList("set", "clear", "info");
+            }
+        } else if (args.length == 3 && args[0].equalsIgnoreCase("weather") && args[1].equalsIgnoreCase("set")) {
+            return Arrays.asList("clear", "light_rain", "heavy_rain", "thunderstorm", "snow", "blizzard", "sandstorm");
+        } else if (args.length == 4 && args[0].equalsIgnoreCase("weather") && args[1].equalsIgnoreCase("set")) {
+            return Arrays.asList("5", "10", "15", "30", "60");
         }
         return null;
     }

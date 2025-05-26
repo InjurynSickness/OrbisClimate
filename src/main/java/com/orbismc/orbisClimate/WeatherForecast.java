@@ -6,6 +6,7 @@ import me.casperge.realisticseasons.season.Season;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -20,11 +21,11 @@ public class WeatherForecast {
         THUNDERSTORM("Thunderstorm", 2, 1),
         SNOW("Snow", 1, 0),
         BLIZZARD("Blizzard", 2, 0),
-        SANDSTORM("Sandstorm", 0, 0); // No rain/thunder for sandstorms
+        SANDSTORM("Sandstorm", 0, 0);
 
         private final String displayName;
-        private final int rainIntensity; // 0 = no rain, 1 = light, 2 = heavy
-        private final int thunderIntensity; // 0 = no thunder, 1 = thunder
+        private final int rainIntensity;
+        private final int thunderIntensity;
 
         WeatherType(String displayName, int rainIntensity, int thunderIntensity) {
             this.displayName = displayName;
@@ -38,10 +39,10 @@ public class WeatherForecast {
     }
 
     public static class DailyForecast {
-        private final WeatherType morningWeather;    // 6AM - 12PM
-        private final WeatherType afternoonWeather;  // 12PM - 6PM
-        private final WeatherType eveningWeather;    // 6PM - 12AM
-        private final WeatherType nightWeather;      // 12AM - 6AM
+        private final WeatherType morningWeather;
+        private final WeatherType afternoonWeather;
+        private final WeatherType eveningWeather;
+        private final WeatherType nightWeather;
         private final Date date;
         private final Season season;
 
@@ -56,13 +57,13 @@ public class WeatherForecast {
         }
 
         public WeatherType getCurrentWeather(int hour) {
-            if (hour >= 6 && hour < 12) {        // 6AM - 12PM (Morning)
+            if (hour >= 6 && hour < 12) {
                 return morningWeather;
-            } else if (hour >= 12 && hour < 18) { // 12PM - 6PM (Afternoon)
+            } else if (hour >= 12 && hour < 18) {
                 return afternoonWeather;
-            } else if (hour >= 18 && hour < 24) { // 6PM - 12AM (Evening)
+            } else if (hour >= 18 && hour < 24) {
                 return eveningWeather;
-            } else {                              // 12AM - 6AM (Night)
+            } else {
                 return nightWeather;
             }
         }
@@ -75,12 +76,47 @@ public class WeatherForecast {
         public WeatherType getNightWeather() { return nightWeather; }
     }
 
+    // NEW: Weather state management per world
+    public static class WorldWeatherState {
+        private WeatherType currentWeather;
+        private WeatherType targetWeather;
+        private long weatherStartTime;
+        private long weatherDuration;
+        private boolean weatherLocked;
+        private long lastWeatherUpdate;
+
+        public WorldWeatherState() {
+            this.currentWeather = WeatherType.CLEAR;
+            this.targetWeather = WeatherType.CLEAR;
+            this.weatherStartTime = System.currentTimeMillis();
+            this.weatherDuration = 0;
+            this.weatherLocked = false;
+            this.lastWeatherUpdate = 0;
+        }
+
+        // Getters and setters
+        public WeatherType getCurrentWeather() { return currentWeather; }
+        public void setCurrentWeather(WeatherType weather) { this.currentWeather = weather; }
+        public WeatherType getTargetWeather() { return targetWeather; }
+        public void setTargetWeather(WeatherType weather) { this.targetWeather = weather; }
+        public long getWeatherStartTime() { return weatherStartTime; }
+        public void setWeatherStartTime(long time) { this.weatherStartTime = time; }
+        public long getWeatherDuration() { return weatherDuration; }
+        public void setWeatherDuration(long duration) { this.weatherDuration = duration; }
+        public boolean isWeatherLocked() { return weatherLocked; }
+        public void setWeatherLocked(boolean locked) { this.weatherLocked = locked; }
+        public long getLastWeatherUpdate() { return lastWeatherUpdate; }
+        public void setLastWeatherUpdate(long time) { this.lastWeatherUpdate = time; }
+    }
+
     private final OrbisClimate plugin;
     private final Random random;
     private final Map<World, DailyForecast> worldForecasts = new HashMap<>();
     private final Map<World, String> lastCheckedDate = new HashMap<>();
+    private final Map<World, WorldWeatherState> worldWeatherStates = new HashMap<>();
     private SeasonsAPI seasonsAPI;
     private boolean realisticSeasonsEnabled = false;
+    private BukkitTask weatherMaintenanceTask;
 
     public WeatherForecast(OrbisClimate plugin) {
         this.plugin = plugin;
@@ -100,25 +136,73 @@ public class WeatherForecast {
             plugin.getLogger().info("RealisticSeasons not found, using vanilla time system");
             realisticSeasonsEnabled = false;
         }
+
+        // NEW: Start weather maintenance task
+        startWeatherMaintenanceTask();
+    }
+
+    // NEW: Weather maintenance task to prevent weather from stopping unexpectedly
+    private void startWeatherMaintenanceTask() {
+        weatherMaintenanceTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            for (World world : Bukkit.getWorlds()) {
+                maintainWorldWeather(world);
+            }
+        }, 0L, 100L); // Every 5 seconds
+    }
+
+    private void maintainWorldWeather(World world) {
+        WorldWeatherState state = worldWeatherStates.get(world);
+        if (state == null) {
+            state = new WorldWeatherState();
+            worldWeatherStates.put(world, state);
+        }
+
+        long currentTime = System.currentTimeMillis();
+        WeatherType currentWeather = state.getCurrentWeather();
+
+        // Check if weather should still be active
+        if (currentWeather != WeatherType.CLEAR && currentWeather != WeatherType.SANDSTORM) {
+            boolean shouldHaveRain = currentWeather.getRainIntensity() > 0;
+            boolean shouldHaveThunder = currentWeather.getThunderIntensity() > 0;
+
+            // Force weather to stay if it's not matching what it should be
+            if (world.hasStorm() != shouldHaveRain || world.isThundering() != shouldHaveThunder) {
+                plugin.getLogger().info("Correcting weather for world " + world.getName() + 
+                    " - Expected: " + currentWeather.getDisplayName() + 
+                    " | Storm: " + shouldHaveRain + " | Thunder: " + shouldHaveThunder);
+                
+                applyWeatherToWorld(world, currentWeather, true);
+            }
+
+            // Extend weather duration if needed
+            if (world.getWeatherDuration() < 200) { // Less than 10 seconds remaining
+                int newDuration = calculateWeatherDuration(currentWeather);
+                world.setWeatherDuration(newDuration);
+                if (shouldHaveThunder && world.getThunderDuration() < 200) {
+                    world.setThunderDuration(newDuration);
+                }
+            }
+        }
+
+        state.setLastWeatherUpdate(currentTime);
     }
 
     public void checkAndUpdateForecast(World world) {
         String currentDateKey = getCurrentDateKey(world);
         String lastDateKey = lastCheckedDate.get(world);
 
-        // Check if we need to generate a new forecast (new day or first time)
+        // Check if we need to generate a new forecast
         if (lastDateKey == null || !currentDateKey.equals(lastDateKey)) {
             generateDailyForecast(world);
             lastCheckedDate.put(world, currentDateKey);
 
-            // Announce new forecast if it's not the first time
             if (lastDateKey != null) {
                 announceDailyForecast(world);
             }
         }
 
         // Apply current weather based on forecast
-        applyCurrentWeather(world);
+        updateCurrentWeather(world);
     }
 
     private String getCurrentDateKey(World world) {
@@ -126,7 +210,6 @@ public class WeatherForecast {
             Date date = seasonsAPI.getDate(world);
             return date.getYear() + "-" + date.getMonth() + "-" + date.getDay();
         } else {
-            // Fallback to vanilla time
             long currentDay = world.getFullTime() / 24000;
             return String.valueOf(currentDay);
         }
@@ -141,7 +224,7 @@ public class WeatherForecast {
             currentSeason = seasonsAPI.getSeason(world);
         }
 
-        // Generate weather for each time period of the day
+        // Generate weather for each time period
         WeatherType morning = generateWeatherType(currentSeason);
         WeatherType afternoon = generateWeatherType(currentSeason, morning);
         WeatherType evening = generateWeatherType(currentSeason, afternoon);
@@ -163,53 +246,50 @@ public class WeatherForecast {
     private WeatherType generateWeatherType(Season season, WeatherType previousWeather) {
         double roll = random.nextDouble() * 100.0;
 
-        // Base weather chances
         double clearChance = 40.0;
         double lightPrecipChance = 30.0;
         double heavyPrecipChance = 20.0;
         double stormChance = 10.0;
-        double sandstormChance = 5.0; // Base sandstorm chance
+        double sandstormChance = 5.0;
 
-        // Modify chances based on season (if RealisticSeasons is available)
         if (season != null) {
             switch (season) {
                 case WINTER:
-                    clearChance = 20.0;        // Less clear weather in winter
-                    lightPrecipChance = 40.0;  // More light precipitation
-                    heavyPrecipChance = 30.0;  // More heavy precipitation
+                    clearChance = 20.0;
+                    lightPrecipChance = 40.0;
+                    heavyPrecipChance = 30.0;
                     stormChance = 10.0;
-                    sandstormChance = 2.0;     // Rare sandstorms in winter
+                    sandstormChance = 2.0;
                     break;
                 case SPRING:
                     clearChance = 35.0;
-                    lightPrecipChance = 35.0;  // Moderate rain in spring
+                    lightPrecipChance = 35.0;
                     heavyPrecipChance = 20.0;
                     stormChance = 10.0;
-                    sandstormChance = 5.0;     // Normal sandstorms
+                    sandstormChance = 5.0;
                     break;
                 case SUMMER:
-                    clearChance = 50.0;        // More clear weather in summer
+                    clearChance = 50.0;
                     lightPrecipChance = 20.0;
                     heavyPrecipChance = 10.0;
-                    stormChance = 10.0;        // But still thunderstorms
-                    sandstormChance = 15.0;    // Elevated sandstorms in summer
+                    stormChance = 10.0;
+                    sandstormChance = 15.0;
                     break;
-                case FALL: // Note: RealisticSeasons uses FALL, not AUTUMN
+                case FALL:
                     clearChance = 30.0;
-                    lightPrecipChance = 40.0;  // Lots of rain in autumn
+                    lightPrecipChance = 40.0;
                     heavyPrecipChance = 25.0;
-                    stormChance = 5.0;         // Less thunderstorms
-                    sandstormChance = 3.0;     // Few sandstorms in fall
+                    stormChance = 5.0;
+                    sandstormChance = 3.0;
                     break;
             }
         }
 
         // Add continuity with previous weather
         if (previousWeather != null && random.nextDouble() < 0.3) {
-            return previousWeather; // 30% chance to continue same weather
+            return previousWeather;
         }
 
-        // Generate weather type with cumulative probabilities
         double cumulative = 0;
 
         cumulative += clearChance;
@@ -219,7 +299,6 @@ public class WeatherForecast {
 
         cumulative += lightPrecipChance;
         if (roll < cumulative) {
-            // Choose between rain, snow, or sandstorm based on season
             if (season == Season.WINTER && random.nextDouble() < 0.7) {
                 return WeatherType.SNOW;
             } else if (season == Season.SUMMER && random.nextDouble() < 0.3) {
@@ -230,7 +309,6 @@ public class WeatherForecast {
 
         cumulative += heavyPrecipChance;
         if (roll < cumulative) {
-            // Choose between heavy rain, blizzard, or sandstorm based on season
             if (season == Season.WINTER && random.nextDouble() < 0.4) {
                 return WeatherType.BLIZZARD;
             } else if (season == Season.SUMMER && random.nextDouble() < 0.2) {
@@ -241,45 +319,128 @@ public class WeatherForecast {
 
         cumulative += stormChance;
         if (roll < cumulative) {
-            // Thunderstorms are rare in winter
             if (season == Season.WINTER && random.nextDouble() < 0.7) {
                 return WeatherType.BLIZZARD;
             }
             return WeatherType.THUNDERSTORM;
         }
 
-        // Remaining chance goes to sandstorms
         return WeatherType.SANDSTORM;
     }
 
-    private void applyCurrentWeather(World world) {
+    // NEW: Improved weather application system
+    private void updateCurrentWeather(World world) {
         DailyForecast forecast = worldForecasts.get(world);
         if (forecast == null) return;
 
         int currentHour = getCurrentHour(world);
-        WeatherType currentWeather = forecast.getCurrentWeather(currentHour);
+        WeatherType targetWeather = forecast.getCurrentWeather(currentHour);
 
-        // Apply weather to the world
-        boolean shouldRain = currentWeather.getRainIntensity() > 0;
-        boolean shouldThunder = currentWeather.getThunderIntensity() > 0;
+        WorldWeatherState state = worldWeatherStates.computeIfAbsent(world, k -> new WorldWeatherState());
 
-        // Handle snow vs rain based on weather type
-        if (currentWeather == WeatherType.SNOW || currentWeather == WeatherType.BLIZZARD) {
-            // For snow, we still set storm=true but the biome temperature will determine if it's snow
-            shouldRain = true;
+        // Check if weather should change
+        if (state.getTargetWeather() != targetWeather) {
+            changeWeather(world, state, targetWeather);
         }
 
-        // Only change weather if needed to avoid constant updates
-        if (world.hasStorm() != shouldRain || world.isThundering() != shouldThunder) {
+        // Ensure current weather is properly applied
+        applyWeatherToWorld(world, state.getCurrentWeather(), false);
+    }
+
+    private void changeWeather(World world, WorldWeatherState state, WeatherType newWeather) {
+        plugin.getLogger().info("Weather changing in " + world.getName() + " from " + 
+            state.getCurrentWeather().getDisplayName() + " to " + newWeather.getDisplayName());
+
+        state.setTargetWeather(newWeather);
+        state.setCurrentWeather(newWeather);
+        state.setWeatherStartTime(System.currentTimeMillis());
+        
+        // Calculate how long this weather should last
+        long duration = calculateWeatherDurationMillis(newWeather);
+        state.setWeatherDuration(duration);
+
+        // Apply the weather immediately
+        applyWeatherToWorld(world, newWeather, true);
+
+        // Notify players
+        notifyPlayersOfWeatherChange(world, newWeather);
+    }
+
+    private void applyWeatherToWorld(World world, WeatherType weather, boolean force) {
+        boolean shouldRain = weather.getRainIntensity() > 0;
+        boolean shouldThunder = weather.getThunderIntensity() > 0;
+
+        // Handle snow vs rain
+        if (weather == WeatherType.SNOW || weather == WeatherType.BLIZZARD) {
+            shouldRain = true; // Snow still uses the storm system
+        }
+
+        // Only update if needed or forced
+        if (force || world.hasStorm() != shouldRain || world.isThundering() != shouldThunder) {
             world.setStorm(shouldRain);
             world.setThundering(shouldThunder);
 
-            // Set weather duration (until next time period check)
-            int ticksUntilNextPeriod = getTicksUntilNextTimePeriod(currentHour);
-            world.setWeatherDuration(ticksUntilNextPeriod);
-
+            // Set appropriate duration
+            int duration = calculateWeatherDuration(weather);
+            
+            if (shouldRain) {
+                world.setWeatherDuration(duration);
+            }
+            
             if (shouldThunder) {
-                world.setThunderDuration(ticksUntilNextPeriod);
+                world.setThunderDuration(duration);
+            }
+
+            plugin.getLogger().info("Applied weather " + weather.getDisplayName() + 
+                " to " + world.getName() + " - Storm: " + shouldRain + 
+                " | Thunder: " + shouldThunder + " | Duration: " + (duration / 20) + "s");
+        }
+    }
+
+    private int calculateWeatherDuration(WeatherType weather) {
+        // Base duration in ticks (20 ticks = 1 second)
+        int baseDuration;
+        
+        switch (weather) {
+            case CLEAR:
+                baseDuration = 12000; // 10 minutes
+                break;
+            case LIGHT_RAIN:
+                baseDuration = 6000;  // 5 minutes
+                break;
+            case HEAVY_RAIN:
+                baseDuration = 9600;  // 8 minutes
+                break;
+            case THUNDERSTORM:
+                baseDuration = 7200;  // 6 minutes
+                break;
+            case SNOW:
+                baseDuration = 8400;  // 7 minutes
+                break;
+            case BLIZZARD:
+                baseDuration = 4800;  // 4 minutes
+                break;
+            case SANDSTORM:
+                baseDuration = 3600;  // 3 minutes
+                break;
+            default:
+                baseDuration = 6000;  // 5 minutes default
+                break;
+        }
+
+        // Add some randomness (±25%)
+        int variation = (int) (baseDuration * 0.25);
+        return baseDuration + random.nextInt(variation * 2) - variation;
+    }
+
+    private long calculateWeatherDurationMillis(WeatherType weather) {
+        return calculateWeatherDuration(weather) * 50L; // Convert ticks to milliseconds
+    }
+
+    private void notifyPlayersOfWeatherChange(World world, WeatherType newWeather) {
+        for (Player player : world.getPlayers()) {
+            if (player.hasPermission("orbisclimate.notifications")) {
+                player.sendMessage("§6[OrbisClimate] §7Weather changing to: §f" + newWeather.getDisplayName());
             }
         }
     }
@@ -288,35 +449,8 @@ public class WeatherForecast {
         if (realisticSeasonsEnabled) {
             return seasonsAPI.getHours(world);
         } else {
-            // Fallback to vanilla time conversion
             long timeOfDay = world.getTime() % 24000;
-            return (int) ((timeOfDay + 6000) / 1000) % 24; // Convert MC time to 24-hour format
-        }
-    }
-
-    private int getTicksUntilNextTimePeriod(int currentHour) {
-        int nextTransitionHour;
-
-        if (currentHour < 6) {
-            nextTransitionHour = 6;  // Next transition at 6AM
-        } else if (currentHour < 12) {
-            nextTransitionHour = 12; // Next transition at 12PM
-        } else if (currentHour < 18) {
-            nextTransitionHour = 18; // Next transition at 6PM
-        } else {
-            nextTransitionHour = 24; // Next transition at 12AM (next day)
-        }
-
-        int hoursUntilTransition = (nextTransitionHour - currentHour) % 24;
-
-        if (realisticSeasonsEnabled) {
-            // RealisticSeasons uses real-time or custom time scale
-            // For now, assume 1 hour = 1200 ticks (1 minute real time)
-            // This should be configurable based on RealisticSeasons settings
-            return hoursUntilTransition * 1200;
-        } else {
-            // Vanilla MC: 1 hour = 1000 ticks
-            return hoursUntilTransition * 1000;
+            return (int) ((timeOfDay + 6000) / 1000) % 24;
         }
     }
 
@@ -333,7 +467,6 @@ public class WeatherForecast {
             seasonStr = " (" + forecast.getSeason().toString().toLowerCase() + ")";
         }
 
-        // Announce to players with notification permission
         for (Player player : world.getPlayers()) {
             if (player.hasPermission("orbisclimate.notifications")) {
                 player.sendMessage("§6[OrbisClimate] §3Daily Weather Forecast - " + dateStr + seasonStr);
@@ -350,6 +483,11 @@ public class WeatherForecast {
     }
 
     public WeatherType getCurrentWeather(World world) {
+        WorldWeatherState state = worldWeatherStates.get(world);
+        if (state != null) {
+            return state.getCurrentWeather();
+        }
+
         DailyForecast forecast = worldForecasts.get(world);
         if (forecast == null) return WeatherType.CLEAR;
         return forecast.getCurrentWeather(getCurrentHour(world));
@@ -358,7 +496,37 @@ public class WeatherForecast {
     public void regenerateForecast(World world) {
         generateDailyForecast(world);
         announceDailyForecast(world);
-        applyCurrentWeather(world);
+        
+        // Force weather update
+        WorldWeatherState state = worldWeatherStates.get(world);
+        if (state != null) {
+            state.setTargetWeather(WeatherType.CLEAR); // Force recalculation
+        }
+        updateCurrentWeather(world);
+    }
+
+    // NEW: Manual weather override (for admins)
+    public void setWeather(World world, WeatherType weather, int durationMinutes) {
+        WorldWeatherState state = worldWeatherStates.computeIfAbsent(world, k -> new WorldWeatherState());
+        
+        state.setCurrentWeather(weather);
+        state.setTargetWeather(weather);
+        state.setWeatherLocked(true);
+        state.setWeatherDuration(durationMinutes * 60 * 1000L); // Convert to milliseconds
+        state.setWeatherStartTime(System.currentTimeMillis());
+        
+        applyWeatherToWorld(world, weather, true);
+        
+        plugin.getLogger().info("Manual weather override: " + world.getName() + 
+            " set to " + weather.getDisplayName() + " for " + durationMinutes + " minutes");
+    }
+
+    public void clearWeatherLock(World world) {
+        WorldWeatherState state = worldWeatherStates.get(world);
+        if (state != null) {
+            state.setWeatherLocked(false);
+            plugin.getLogger().info("Weather lock cleared for " + world.getName());
+        }
     }
 
     public boolean isRealisticSeasonsEnabled() {
@@ -377,5 +545,15 @@ public class WeatherForecast {
             return seasonsAPI.getDate(world);
         }
         return null;
+    }
+
+    // NEW: Shutdown method
+    public void shutdown() {
+        if (weatherMaintenanceTask != null) {
+            weatherMaintenanceTask.cancel();
+        }
+        worldWeatherStates.clear();
+        worldForecasts.clear();
+        lastCheckedDate.clear();
     }
 }

@@ -141,6 +141,11 @@ public class SandstormManager {
         for (Player player : world.getPlayers()) {
             if (!player.getWorld().equals(world)) continue;
 
+            // Skip if player has particles disabled
+            if (!plugin.isPlayerParticlesEnabled(player)) {
+                continue;
+            }
+
             // Generate intensive sand particles around player
             generateSandstormParticles(player);
         }
@@ -155,8 +160,13 @@ public class SandstormManager {
         // Check height requirement
         if (playerLoc.getBlockY() < minSandstormHeight) return;
 
-        // Performance optimization - adjust particle count
-        int actualRange = (int) (particleRange * particleMultiplier);
+        // Performance optimization - adjust particle count based on nearby players
+        int nearbyPlayers = (int) player.getWorld().getPlayers().stream()
+                .filter(p -> p.getLocation().distance(player.getLocation()) <= particleRange * 2)
+                .count();
+        
+        double performanceMultiplier = Math.max(0.3, 1.0 / Math.max(1, nearbyPlayers - 1));
+        int actualRange = (int) (particleRange * particleMultiplier * performanceMultiplier);
 
         // Create intensive particle spam like old system
         for (int i = 0; i < 50; i++) { // 50 particles per tick per player
@@ -240,6 +250,11 @@ public class SandstormManager {
             }
         }
 
+        // Enhanced sandstorm wall effects
+        if (random.nextInt(5) == 0) {
+            createSandstormWalls(player);
+        }
+
         // Play sandstorm sounds occasionally
         if (random.nextInt(80) == 0) { // Every ~4 seconds
             player.playSound(playerLoc, Sound.WEATHER_RAIN, 0.6f, 0.3f); // Low pitch for sand sound
@@ -248,6 +263,88 @@ public class SandstormManager {
         // Add wind whoosh sounds
         if (random.nextInt(120) == 0) { // Every ~6 seconds
             player.playSound(playerLoc, Sound.ITEM_ELYTRA_FLYING, 0.4f, 0.5f);
+        }
+
+        // Add sand hitting sounds
+        if (random.nextInt(100) == 0) { // Every ~5 seconds
+            player.playSound(playerLoc, Sound.BLOCK_SAND_STEP, 0.5f, 0.8f);
+        }
+    }
+
+    // NEW: Enhanced sandstorm wall effects
+    private void createSandstormWalls(Player player) {
+        Location playerLoc = player.getLocation();
+        int wallCount = 6; // Six walls around player
+        
+        for (int wall = 0; wall < wallCount; wall++) {
+            createSandstormWall(player, playerLoc, wall);
+        }
+    }
+
+    private void createSandstormWall(Player player, Location center, int wallIndex) {
+        // Calculate wall position in a circle around player
+        double angle = wallIndex * (360.0 / 6.0); // 60 degrees apart
+        double radians = Math.toRadians(angle);
+        
+        // Position wall at edge of effect range
+        double wallDistance = particleRange * 0.7;
+        double wallX = center.getX() + Math.cos(radians) * wallDistance;
+        double wallZ = center.getZ() + Math.sin(radians) * wallDistance;
+        
+        Location wallCenter = new Location(center.getWorld(), wallX, center.getY(), wallZ);
+        
+        // Create wall particles moving toward player
+        int wallWidth = 8;
+        int wallHeight = 5;
+        
+        for (int x = -wallWidth/2; x <= wallWidth/2; x++) {
+            for (int y = 0; y < wallHeight; y++) {
+                if (random.nextInt(3) != 0) continue; // Sparse wall for performance
+                
+                // Calculate particle position perpendicular to the radius
+                double perpAngle = radians + Math.PI/2; // 90 degrees to the radius
+                double particleX = wallCenter.getX() + Math.cos(perpAngle) * x * 0.5;
+                double particleY = wallCenter.getY() + y * 0.8;
+                double particleZ = wallCenter.getZ() + Math.sin(perpAngle) * x * 0.5;
+                
+                Location particleLoc = new Location(center.getWorld(), particleX, particleY, particleZ);
+                
+                // Add some randomness
+                particleLoc.add(
+                    (random.nextDouble() - 0.5) * 0.8,
+                    (random.nextDouble() - 0.5) * 0.4,
+                    (random.nextDouble() - 0.5) * 0.8
+                );
+                
+                // Calculate velocity toward player
+                double deltaX = center.getX() - particleLoc.getX();
+                double deltaZ = center.getZ() - particleLoc.getZ();
+                double distance = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
+                
+                double velocityX = (deltaX / distance) * 0.2;
+                double velocityZ = (deltaZ / distance) * 0.2;
+                
+                // Create moving sand particles
+                Particle.DustOptions sandDust = new Particle.DustOptions(
+                    org.bukkit.Color.fromRGB(180 + random.nextInt(40), 140 + random.nextInt(40), 90 + random.nextInt(30)),
+                    1.0f + random.nextFloat() * 0.5f
+                );
+                
+                player.spawnParticle(Particle.DUST, particleLoc, 1,
+                    velocityX, 0.0, velocityZ, 0.1, sandDust);
+                
+                // Add some cloud particles for density
+                if (random.nextInt(2) == 0) {
+                    player.spawnParticle(Particle.CLOUD, particleLoc, 1,
+                        velocityX * 0.5, 0.05, velocityZ * 0.5, 0.05);
+                }
+                
+                // Add ash particles for fine sand
+                if (random.nextInt(4) == 0) {
+                    player.spawnParticle(Particle.ASH, particleLoc, 1,
+                        velocityX * 0.3, 0.02, velocityZ * 0.3, 0.02);
+                }
+            }
         }
     }
 
@@ -263,9 +360,11 @@ public class SandstormManager {
             boolean shouldHaveSandstorm = false;
 
             // Sandstorms can happen during various weather but are more likely in summer
-            if (currentWeather == WeatherForecast.WeatherType.CLEAR ||
-                    currentWeather == WeatherForecast.WeatherType.LIGHT_RAIN ||
-                    currentWeather == WeatherForecast.WeatherType.HEAVY_RAIN) {
+            if (currentWeather == WeatherForecast.WeatherType.SANDSTORM) {
+                shouldHaveSandstorm = true;
+            } else if (currentWeather == WeatherForecast.WeatherType.CLEAR ||
+                       currentWeather == WeatherForecast.WeatherType.LIGHT_RAIN ||
+                       currentWeather == WeatherForecast.WeatherType.HEAVY_RAIN) {
 
                 // Check if it's summer for elevated chance
                 Season currentSeason = weatherForecast.getCurrentSeason(world);
@@ -286,10 +385,26 @@ public class SandstormManager {
             if (shouldHaveSandstorm) {
                 if (!isSandstormActive(world)) {
                     startSandstorm(world);
+                    
+                    // Notify players
+                    for (Player player : world.getPlayers()) {
+                        if (player.hasPermission("orbisclimate.notifications") && 
+                            isDesertBiome(player.getLocation().getBlock().getBiome())) {
+                            player.sendMessage("§6[OrbisClimate] §c§lA sandstorm is approaching! Seek shelter!");
+                        }
+                    }
                 }
             } else {
                 if (isSandstormActive(world)) {
                     stopSandstorm(world);
+                    
+                    // Notify players that sandstorm has ended
+                    for (Player player : world.getPlayers()) {
+                        if (player.hasPermission("orbisclimate.notifications") && 
+                            isDesertBiome(player.getLocation().getBlock().getBiome())) {
+                            player.sendMessage("§6[OrbisClimate] §a§lThe sandstorm has passed.");
+                        }
+                    }
                 }
             }
         }
