@@ -47,6 +47,15 @@ blizzard:
   blizzard:
     min_freezing_height: 62     # Blizzard threshold (higher = more exclusive)
 
+sandstorm:
+  min_height: 62              # Minimum Y level for effects
+  particle_range: 15          # Particle spawn radius
+  particle_y_range: 25        # Vertical particle range
+  particle_multiplier: 1.5    # Particle density (1.5x normal)
+  blindness_duration: 100     # Blindness duration (5 seconds)
+  slowness_duration: 100      # Slowness duration (5 seconds)
+  slowness_amplifier: 1       # Slowness level (0=I, 1=II, 2=III)
+
 # Integration Information:
 # - RealisticSeasons: If installed, the plugin will use RealisticSeasons time and seasons
 #   to generate more realistic weather patterns and seasonal wind effects

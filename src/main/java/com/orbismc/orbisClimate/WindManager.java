@@ -715,7 +715,7 @@ public class WindManager {
             }
 
             // Major gust every 5-8 seconds
-            if (gustPhase % (100 + (int) (Math.random() * 60)) == 0) {
+            if (gustPhase % (100 + (int)(Math.random() * 60)) == 0) {
                 gustStrength += 0.4 + (Math.random() * 0.3);
             }
 
@@ -770,4 +770,4 @@ public class WindManager {
             lastGustTime = time;
         }
     }
-}
+    }

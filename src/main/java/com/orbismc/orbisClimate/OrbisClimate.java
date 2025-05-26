@@ -9,6 +9,7 @@ public class OrbisClimate extends JavaPlugin {
     private WindManager windManager;
     private WeatherForecast weatherForecast;
     private BlizzardManager blizzardManager;
+    private SandstormManager sandstormManager;
     private Random random;
 
     @Override
@@ -29,15 +30,20 @@ public class OrbisClimate extends JavaPlugin {
             weatherForecast = new WeatherForecast(this);
             getLogger().info("✓ Weather forecast system initialized");
 
+            // Initialize wind manager
+            getLogger().info("Initializing wind manager...");
+            windManager = new WindManager(this, random, weatherForecast);
+            getLogger().info("✓ Wind manager initialized");
+
             // Initialize blizzard manager
             getLogger().info("Initializing blizzard manager...");
             blizzardManager = new BlizzardManager(this, weatherForecast);
             getLogger().info("✓ Blizzard manager initialized");
 
-            // Initialize wind manager
-            getLogger().info("Initializing wind manager...");
-            windManager = new WindManager(this, random, weatherForecast);
-            getLogger().info("✓ Wind manager initialized");
+            // Initialize sandstorm manager
+            getLogger().info("Initializing sandstorm manager...");
+            sandstormManager = new SandstormManager(this, weatherForecast, windManager);
+            getLogger().info("✓ Sandstorm manager initialized");
 
             // Register commands
             getLogger().info("Registering commands...");
@@ -58,8 +64,9 @@ public class OrbisClimate extends JavaPlugin {
                     Bukkit.getWorlds().forEach(world -> {
                         weatherForecast.checkAndUpdateForecast(world);
                     });
-                    // Check for blizzards every minute
+                    // Check for blizzards and sandstorms every minute
                     blizzardManager.checkForBlizzards();
+                    sandstormManager.checkForSandstorms();
                 } catch (Exception e) {
                     getLogger().severe("Error in weather forecast task: " + e.getMessage());
                     e.printStackTrace();
@@ -96,6 +103,10 @@ public class OrbisClimate extends JavaPlugin {
                 blizzardManager.shutdown();
                 getLogger().info("✓ Blizzard manager shut down");
             }
+            if (sandstormManager != null) {
+                sandstormManager.shutdown();
+                getLogger().info("✓ Sandstorm manager shut down");
+            }
         } catch (Exception e) {
             getLogger().severe("Error shutting down managers: " + e.getMessage());
             e.printStackTrace();
@@ -114,5 +125,9 @@ public class OrbisClimate extends JavaPlugin {
 
     public BlizzardManager getBlizzardManager() {
         return blizzardManager;
+    }
+
+    public SandstormManager getSandstormManager() {
+        return sandstormManager;
     }
 }

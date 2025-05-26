@@ -19,7 +19,8 @@ public class WeatherForecast {
         HEAVY_RAIN("Heavy Rain", 2, 0),
         THUNDERSTORM("Thunderstorm", 2, 1),
         SNOW("Snow", 1, 0),
-        BLIZZARD("Blizzard", 2, 0);
+        BLIZZARD("Blizzard", 2, 0),
+        SANDSTORM("Sandstorm", 0, 0); // No rain/thunder for sandstorms
 
         private final String displayName;
         private final int rainIntensity; // 0 = no rain, 1 = light, 2 = heavy
@@ -167,6 +168,7 @@ public class WeatherForecast {
         double lightPrecipChance = 30.0;
         double heavyPrecipChance = 20.0;
         double stormChance = 10.0;
+        double sandstormChance = 5.0; // Base sandstorm chance
 
         // Modify chances based on season (if RealisticSeasons is available)
         if (season != null) {
@@ -176,24 +178,28 @@ public class WeatherForecast {
                     lightPrecipChance = 40.0;  // More light precipitation
                     heavyPrecipChance = 30.0;  // More heavy precipitation
                     stormChance = 10.0;
+                    sandstormChance = 2.0;     // Rare sandstorms in winter
                     break;
                 case SPRING:
                     clearChance = 35.0;
                     lightPrecipChance = 35.0;  // Moderate rain in spring
                     heavyPrecipChance = 20.0;
                     stormChance = 10.0;
+                    sandstormChance = 5.0;     // Normal sandstorms
                     break;
                 case SUMMER:
-                    clearChance = 60.0;        // More clear weather in summer
+                    clearChance = 50.0;        // More clear weather in summer
                     lightPrecipChance = 20.0;
                     heavyPrecipChance = 10.0;
                     stormChance = 10.0;        // But still thunderstorms
+                    sandstormChance = 15.0;    // Elevated sandstorms in summer
                     break;
                 case FALL: // Note: RealisticSeasons uses FALL, not AUTUMN
                     clearChance = 30.0;
                     lightPrecipChance = 40.0;  // Lots of rain in autumn
                     heavyPrecipChance = 25.0;
                     stormChance = 5.0;         // Less thunderstorms
+                    sandstormChance = 3.0;     // Few sandstorms in fall
                     break;
             }
         }
@@ -203,28 +209,47 @@ public class WeatherForecast {
             return previousWeather; // 30% chance to continue same weather
         }
 
-        // Generate weather type
-        if (roll < clearChance) {
+        // Generate weather type with cumulative probabilities
+        double cumulative = 0;
+
+        cumulative += clearChance;
+        if (roll < cumulative) {
             return WeatherType.CLEAR;
-        } else if (roll < clearChance + lightPrecipChance) {
-            // Choose between rain and snow based on season
+        }
+
+        cumulative += lightPrecipChance;
+        if (roll < cumulative) {
+            // Choose between rain, snow, or sandstorm based on season
             if (season == Season.WINTER && random.nextDouble() < 0.7) {
                 return WeatherType.SNOW;
+            } else if (season == Season.SUMMER && random.nextDouble() < 0.3) {
+                return WeatherType.SANDSTORM;
             }
             return WeatherType.LIGHT_RAIN;
-        } else if (roll < clearChance + lightPrecipChance + heavyPrecipChance) {
-            // Choose between heavy rain and blizzard based on season
+        }
+
+        cumulative += heavyPrecipChance;
+        if (roll < cumulative) {
+            // Choose between heavy rain, blizzard, or sandstorm based on season
             if (season == Season.WINTER && random.nextDouble() < 0.4) {
                 return WeatherType.BLIZZARD;
+            } else if (season == Season.SUMMER && random.nextDouble() < 0.2) {
+                return WeatherType.SANDSTORM;
             }
             return WeatherType.HEAVY_RAIN;
-        } else {
+        }
+
+        cumulative += stormChance;
+        if (roll < cumulative) {
             // Thunderstorms are rare in winter
             if (season == Season.WINTER && random.nextDouble() < 0.7) {
                 return WeatherType.BLIZZARD;
             }
             return WeatherType.THUNDERSTORM;
         }
+
+        // Remaining chance goes to sandstorms
+        return WeatherType.SANDSTORM;
     }
 
     private void applyCurrentWeather(World world) {
