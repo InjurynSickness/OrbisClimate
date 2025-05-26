@@ -8,40 +8,99 @@ public class OrbisClimate extends JavaPlugin {
 
     private WindManager windManager;
     private WeatherForecast weatherForecast;
+    private BlizzardManager blizzardManager;
     private Random random;
 
     @Override
     public void onEnable() {
-        // Save default config
-        saveDefaultConfig();
+        getLogger().info("Starting OrbisClimate plugin initialization...");
 
-        // Initialize random
-        random = new Random();
+        try {
+            // Save default config
+            saveDefaultConfig();
+            getLogger().info("✓ Config saved successfully");
 
-        // Initialize weather forecast system
-        weatherForecast = new WeatherForecast(this);
+            // Initialize random
+            random = new Random();
+            getLogger().info("✓ Random initialized");
 
-        // Initialize wind manager
-        windManager = new WindManager(this, random, weatherForecast);
+            // Initialize weather forecast system
+            getLogger().info("Initializing weather forecast system...");
+            weatherForecast = new WeatherForecast(this);
+            getLogger().info("✓ Weather forecast system initialized");
 
-        // Register commands
-        WindCommand windCommand = new WindCommand(this, windManager, weatherForecast);
-        getCommand("wind").setExecutor(windCommand);
-        getCommand("wind").setTabCompleter(windCommand);
+            // Initialize blizzard manager
+            getLogger().info("Initializing blizzard manager...");
+            blizzardManager = new BlizzardManager(this, weatherForecast);
+            getLogger().info("✓ Blizzard manager initialized");
 
-        // Start weather forecast task (check every minute for time changes)
-        Bukkit.getScheduler().runTaskTimer(this, () -> {
-            Bukkit.getWorlds().forEach(world -> weatherForecast.checkAndUpdateForecast(world));
-        }, 0L, 1200L); // Every minute (1200 ticks)
+            // Initialize wind manager
+            getLogger().info("Initializing wind manager...");
+            windManager = new WindManager(this, random, weatherForecast);
+            getLogger().info("✓ Wind manager initialized");
 
-        getLogger().info("OrbisClimate has been enabled!");
+            // Register commands
+            getLogger().info("Registering commands...");
+            WindCommand windCommand = new WindCommand(this, windManager, weatherForecast);
+
+            if (getCommand("wind") != null) {
+                getCommand("wind").setExecutor(windCommand);
+                getCommand("wind").setTabCompleter(windCommand);
+                getLogger().info("✓ Wind command registered successfully");
+            } else {
+                getLogger().severe("✗ Failed to register wind command - command not found in plugin.yml!");
+            }
+
+            // Start weather forecast task (check every minute for time changes)
+            getLogger().info("Starting weather forecast task...");
+            Bukkit.getScheduler().runTaskTimer(this, () -> {
+                try {
+                    Bukkit.getWorlds().forEach(world -> {
+                        weatherForecast.checkAndUpdateForecast(world);
+                    });
+                    // Check for blizzards every minute
+                    blizzardManager.checkForBlizzards();
+                } catch (Exception e) {
+                    getLogger().severe("Error in weather forecast task: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }, 0L, 1200L); // Every minute (1200 ticks)
+            getLogger().info("✓ Weather forecast task started");
+
+            getLogger().info("OrbisClimate has been enabled successfully!");
+
+            // Print RealisticSeasons integration status
+            if (weatherForecast.isRealisticSeasonsEnabled()) {
+                getLogger().info("✓ RealisticSeasons integration: ENABLED");
+            } else {
+                getLogger().warning("⚠ RealisticSeasons integration: DISABLED (using vanilla time)");
+            }
+
+        } catch (Exception e) {
+            getLogger().severe("✗ Failed to enable OrbisClimate: " + e.getMessage());
+            e.printStackTrace();
+            // Don't disable the plugin, but log the error
+        }
     }
 
     @Override
     public void onDisable() {
-        if (windManager != null) {
-            windManager.shutdown();
+        getLogger().info("Disabling OrbisClimate...");
+
+        try {
+            if (windManager != null) {
+                windManager.shutdown();
+                getLogger().info("✓ Wind manager shut down");
+            }
+            if (blizzardManager != null) {
+                blizzardManager.shutdown();
+                getLogger().info("✓ Blizzard manager shut down");
+            }
+        } catch (Exception e) {
+            getLogger().severe("Error shutting down managers: " + e.getMessage());
+            e.printStackTrace();
         }
+
         getLogger().info("OrbisClimate has been disabled!");
     }
 
@@ -51,5 +110,9 @@ public class OrbisClimate extends JavaPlugin {
 
     public WeatherForecast getWeatherForecast() {
         return weatherForecast;
+    }
+
+    public BlizzardManager getBlizzardManager() {
+        return blizzardManager;
     }
 }

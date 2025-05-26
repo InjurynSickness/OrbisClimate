@@ -33,6 +33,20 @@ wind:
     min_seconds: 30          # Minimum duration
     max_seconds: 120         # Maximum duration
 
+blizzard:
+  damage: 1.0                    # Damage per effect tick
+  min_freezing_height: 60        # Minimum Y level for effects
+  particle_range: 20             # Particle spawn radius
+  particle_y_range: 30           # Vertical particle range
+  particle_multiplier: 1.0       # Particle density multiplier
+  temperature_threshold: 0.15    # Biome temperature threshold
+
+  wind:
+    min_height: 62              # Wind threshold (valleys protected)
+
+  blizzard:
+    min_freezing_height: 62     # Blizzard threshold (higher = more exclusive)
+
 # Integration Information:
 # - RealisticSeasons: If installed, the plugin will use RealisticSeasons time and seasons
 #   to generate more realistic weather patterns and seasonal wind effects

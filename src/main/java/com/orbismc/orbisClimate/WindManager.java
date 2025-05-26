@@ -28,6 +28,7 @@ public class WindManager {
     private int maxParticles;
     private double particleRange;
     private boolean windEnabled;
+    private int minWindHeight; // New: minimum height for wind effects
 
     // Wind chance configuration
     private double clearWeatherChance;
@@ -63,6 +64,7 @@ public class WindManager {
         maxParticles = plugin.getConfig().getInt("wind.max_particles", 100);
         particleRange = plugin.getConfig().getDouble("wind.particle_range", 10.0);
         windEnabled = plugin.getConfig().getBoolean("wind.enabled", true);
+        minWindHeight = plugin.getConfig().getInt("wind.min_height", 50); // New: minimum height for wind
 
         // Wind event chances (percentage)
         clearWeatherChance = plugin.getConfig().getDouble("wind.chances.clear_weather", 10.0);
@@ -87,6 +89,13 @@ public class WindManager {
         // Add all carpet types
         for (Material mat : Material.values()) {
             if (mat.name().contains("_CARPET")) {
+                bannedBlocks.add(mat);
+            }
+        }
+
+        // Add all leaf types - leaves shouldn't count as solid ceiling
+        for (Material mat : Material.values()) {
+            if (mat.name().contains("_LEAVES")) {
                 bannedBlocks.add(mat);
             }
         }
@@ -138,6 +147,11 @@ public class WindManager {
 
         // Process players
         for (Player player : world.getPlayers()) {
+            // Check minimum height requirement for wind effects
+            if (player.getLocation().getBlockY() < minWindHeight) {
+                continue;
+            }
+
             if (player.isDead() || isPlayerIndoors(player)) {
                 continue;
             }
@@ -289,17 +303,62 @@ public class WindManager {
 
     public boolean isPlayerIndoors(Player player) {
         Location loc = player.getLocation();
-        Block block = loc.clone().add(0, 2, 0).getBlock();
 
-        // Check for solid ceiling within the configured distance
+        // Multi-directional shelter detection - check if player has solid blocks protecting them
+        return hasOverheadShelter(loc) || hasDirectionalShelter(loc);
+    }
+
+    private boolean hasOverheadShelter(Location loc) {
+        // Check directly above player
+        Block block = loc.clone().add(0, 2, 0).getBlock();
         for (int i = 0; i < interiorHeightDistance; i++) {
             if (block.getType().isSolid() && !bannedBlocks.contains(block.getType())) {
-                return true; // Found a solid ceiling, player is indoors
+                return true;
             }
             block = block.getRelative(BlockFace.UP);
         }
+        return false;
+    }
 
-        return false; // No ceiling found, player is outdoors
+    private boolean hasDirectionalShelter(Location loc) {
+        // Check for walls/shelter in multiple directions (like DeadlyDisasters does)
+        Vector[] directions = {
+                new Vector(1, 0, 0),   // East
+                new Vector(-1, 0, 0),  // West
+                new Vector(0, 0, 1),   // South
+                new Vector(0, 0, -1),  // North
+                new Vector(1, 0, 1),   // Southeast
+                new Vector(-1, 0, 1),  // Southwest
+                new Vector(1, 0, -1),  // Northeast
+                new Vector(-1, 0, -1)  // Northwest
+        };
+
+        int shelterCount = 0;
+        for (Vector direction : directions) {
+            if (hasShelterInDirection(loc, direction, 5)) {
+                shelterCount++;
+            }
+        }
+
+        // If player has shelter in at least 4 directions, consider them indoors
+        return shelterCount >= 4;
+    }
+
+    private boolean hasShelterInDirection(Location loc, Vector direction, int maxDistance) {
+        Location checkLoc = loc.clone();
+        for (int i = 1; i <= maxDistance; i++) {
+            checkLoc.add(direction);
+            Block block = checkLoc.getBlock();
+
+            if (block.getType().isSolid() && !bannedBlocks.contains(block.getType())) {
+                // Check vertically too - need ceiling protection
+                Block aboveBlock = block.getRelative(BlockFace.UP);
+                if (aboveBlock.getType().isSolid() && !bannedBlocks.contains(aboveBlock.getType())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public boolean hasActiveWind(World world) {
@@ -311,6 +370,12 @@ public class WindManager {
         Location loc = player.getLocation();
         Vector windDirection = windData.getWindDirection();
         double force = windData.getCurrentForce();
+
+        // Add 2-second delay between wind gusts
+        if (windData.getLastGustTime() + 40 > System.currentTimeMillis() / 50) { // 40 ticks = 2 seconds
+            return; // Skip this gust, too soon
+        }
+        windData.setLastGustTime(System.currentTimeMillis() / 50);
 
         // Create particle effects
         createWindParticles(player, windDirection, force);
@@ -326,21 +391,48 @@ public class WindManager {
         WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(player.getWorld());
 
         Location loc = player.getLocation();
-        float volume = (float) (force * 0.3);
-        float pitch = 0.5f + (float) (force * 0.3);
 
-        // Choose sound based on season and weather
-        Sound windSound = Sound.WEATHER_RAIN; // Default
+        // Dynamic volume and pitch based on wind force
+        float baseVolume = 0.3f;
+        float maxVolume = 1.0f;
+        float volume = (float) (baseVolume + (force * (maxVolume - baseVolume)));
 
-        if (currentWeather == WeatherForecast.WeatherType.SNOW || currentWeather == WeatherForecast.WeatherType.BLIZZARD) {
-            // Snow/winter wind sounds
+        float basePitch = 0.5f;
+        float maxPitch = 1.2f;
+        float pitch = (float) (basePitch + (force * (maxPitch - basePitch)));
+
+        // Choose sound based on weather intensity
+        Sound windSound;
+        if (force > 0.7) {
+            // Strong wind - use weather rain sound
             windSound = Sound.WEATHER_RAIN;
-            pitch *= 0.8f; // Lower pitch for winter winds
-        } else if (currentSeason == Season.WINTER) {
-            pitch *= 0.9f; // Slightly lower for winter
-        } else if (currentSeason == Season.SUMMER) {
-            pitch *= 1.1f; // Slightly higher for summer
+            pitch *= 0.8f; // Lower pitch for stronger winds
+        } else if (force > 0.4) {
+            // Medium wind - use ambient weather sound
+            windSound = Sound.WEATHER_RAIN_ABOVE;
+            pitch *= 0.9f;
+        } else {
+            // Light wind - use item sounds for subtle effect
+            windSound = Sound.ITEM_ELYTRA_FLYING;
+            volume *= 0.5f; // Quieter for light winds
+            pitch *= 1.1f;  // Higher pitch for gentler sound
         }
+
+        // Seasonal sound modifications
+        if (currentWeather == WeatherForecast.WeatherType.SNOW || currentWeather == WeatherForecast.WeatherType.BLIZZARD) {
+            // Snow/winter wind sounds - lower and more haunting
+            pitch *= 0.7f;
+            volume *= 1.2f; // Slightly louder for blizzard effect
+        } else if (currentSeason == Season.WINTER) {
+            pitch *= 0.85f; // Slightly lower for winter
+        } else if (currentSeason == Season.SUMMER) {
+            pitch *= 1.1f; // Slightly higher for summer breeze
+            volume *= 0.8f; // Quieter for gentler summer winds
+        }
+
+        // Cap the values to prevent audio issues
+        volume = Math.min(Math.max(volume, 0.1f), 2.0f);
+        pitch = Math.min(Math.max(pitch, 0.5f), 2.0f);
 
         player.playSound(loc, windSound, volume, pitch);
     }
@@ -452,7 +544,7 @@ public class WindManager {
                         Particle.SNOWFLAKE // Secondary particle
                 );
 
-            // Forest biomes - seasonal leaf colors
+            // Forest biomes - gray particles
             case FOREST:
             case BIRCH_FOREST:
             case PLAINS:
@@ -463,42 +555,24 @@ public class WindManager {
             case WINDSWEPT_FOREST:
             case WINDSWEPT_HILLS:
             case WINDSWEPT_SAVANNA:
-                if (season == Season.FALL) { // Note: RealisticSeasons uses FALL, not AUTUMN
-                    // Orange/red leaf particles in autumn
-                    return new BiomeParticleData(
-                            Particle.DUST_COLOR_TRANSITION,
-                            Color.fromRGB(255, 165, 0),  // Orange
-                            Color.fromRGB(139, 69, 19),  // Brown
-                            Particle.ASH
-                    );
-                } else if (season == Season.SPRING) {
-                    // Green leaf particles in spring
-                    return new BiomeParticleData(
-                            Particle.DUST_COLOR_TRANSITION,
-                            Color.fromRGB(144, 238, 144), // Light green
-                            Color.fromRGB(34, 139, 34),   // Forest green
-                            Particle.ASH
-                    );
-                }
-                // Default forest particles
                 return new BiomeParticleData(
                         Particle.DUST_COLOR_TRANSITION,
-                        Color.fromRGB(255, 255, 255), // White
-                        Color.fromRGB(192, 192, 192), // Light gray
+                        Color.fromRGB(169, 169, 169), // Light gray
+                        Color.fromRGB(105, 105, 105), // Dark gray
                         Particle.ASH
                 );
 
-            // Swamp biomes - murky particles
+            // Swamp biomes - gray particles
             case SWAMP:
             case MANGROVE_SWAMP:
                 return new BiomeParticleData(
                         Particle.DUST_COLOR_TRANSITION,
-                        Color.fromRGB(128, 128, 64),  // Murky green
-                        Color.fromRGB(64, 64, 32),    // Dark murky
+                        Color.fromRGB(169, 169, 169), // Light gray
+                        Color.fromRGB(105, 105, 105), // Dark gray
                         Particle.ASH
                 );
 
-            // Ocean/Beach biomes - salt spray
+            // Ocean/Beach biomes - white particles
             case OCEAN:
             case DEEP_OCEAN:
             case WARM_OCEAN:
@@ -508,26 +582,18 @@ public class WindManager {
             case RIVER:
                 return new BiomeParticleData(
                         Particle.DUST_COLOR_TRANSITION,
-                        Color.fromRGB(255, 255, 255), // White foam
-                        Color.fromRGB(176, 224, 230), // Light blue
+                        Color.fromRGB(255, 255, 255), // White
+                        Color.fromRGB(240, 248, 255), // Alice blue (very light blue-white)
                         Particle.RAIN // Secondary particle
                 );
 
-            // Plains and other biomes - default with seasonal variation
+            // Plains and other biomes - white particles
             default:
-                if (season == Season.FALL) { // Note: RealisticSeasons uses FALL, not AUTUMN
-                    return new BiomeParticleData(
-                            Particle.DUST_COLOR_TRANSITION,
-                            Color.fromRGB(210, 180, 140), // Tan
-                            Color.fromRGB(160, 82, 45),   // Saddle brown
-                            Particle.DUST_PLUME
-                    );
-                }
                 return new BiomeParticleData(
-                        Particle.ASH,
-                        null,
-                        null,
-                        Particle.DUST_PLUME // Secondary particle
+                        Particle.DUST_COLOR_TRANSITION,
+                        Color.fromRGB(255, 255, 255), // White
+                        Color.fromRGB(245, 245, 245), // White smoke
+                        Particle.ASH // Secondary particle
                 );
         }
     }
@@ -584,26 +650,44 @@ public class WindManager {
     private static class WindData {
         private Vector windDirection;
         private double windIntensity;
-        private double[] oscillation = {0, 0.02}; // [current, increment]
+        private double currentForce;
+        private double[] oscillation = {0, 0.015}; // [current, increment] - slower oscillation
+        private int gustPhase = 0; // Track gust phases
         private int windDuration; // Remaining ticks
         private boolean windActive;
+        private long lastGustTime; // For 2-second delay between gusts
 
         public WindData() {
+            // Set wind to blow in one of the four cardinal directions
             Random rand = new Random();
-            windDirection = new Vector(
-                    rand.nextDouble() - 0.5,
-                    0,
-                    rand.nextDouble() - 0.5
-            ).normalize();
+            int direction = rand.nextInt(4);
+            switch (direction) {
+                case 0: // North
+                    windDirection = new Vector(0, 0, -1);
+                    break;
+                case 1: // East
+                    windDirection = new Vector(1, 0, 0);
+                    break;
+                case 2: // South
+                    windDirection = new Vector(0, 0, 1);
+                    break;
+                case 3: // West
+                    windDirection = new Vector(-1, 0, 0);
+                    break;
+            }
             windIntensity = 0;
+            currentForce = 0;
             windDuration = 0;
             windActive = false;
+            lastGustTime = 0;
         }
 
         public void startWindEvent(int durationTicks, double intensity) {
             windDuration = durationTicks;
             windIntensity = intensity;
             windActive = true;
+            oscillation[0] = 0; // Reset oscillation
+            gustPhase = 0;
         }
 
         public void update() {
@@ -612,50 +696,57 @@ public class WindManager {
                 if (windDuration <= 0) {
                     windActive = false;
                     windIntensity = 0;
+                    currentForce = 0;
+                    return;
                 }
 
-                // Add oscillation for realistic wind gusts
-                oscillation[0] += oscillation[1];
-                if ((oscillation[1] > 0 && oscillation[0] > windIntensity * 0.3) ||
-                        (oscillation[1] < 0 && oscillation[0] < -windIntensity * 0.3)) {
-                    oscillation[1] *= -1;
-                }
+                // Realistic wind gusts with multiple phases
+                updateWindGusts();
             }
         }
 
-        public void updateDirection(Random random, Season season) {
-            // Gradually change wind direction with seasonal influence
-            double changeIntensity = 0.2;
+        private void updateWindGusts() {
+            gustPhase++;
 
-            // Seasonal wind pattern influences
-            if (season != null) {
-                switch (season) {
-                    case WINTER:
-                        // More directional changes in winter (gusty)
-                        changeIntensity = 0.3;
+            // Create realistic wind pattern with varying intensities
+            double gustCycle = gustPhase / 60.0; // 3-second cycles (60 ticks)
+            double gustStrength = Math.sin(gustCycle) * 0.3; // Sine wave for smooth gusts
+
+            // Add some randomness for natural variation
+            if (gustPhase % 20 == 0) { // Every second, add small random variation
+                gustStrength += (Math.random() - 0.5) * 0.1;
+            }
+
+            // Major gust every 5-8 seconds
+            if (gustPhase % (100 + (int) (Math.random() * 60)) == 0) {
+                gustStrength += 0.4 + (Math.random() * 0.3);
+            }
+
+            // Calculate final force with base intensity and gust effects
+            currentForce = windIntensity * (0.7 + gustStrength); // Base 70% + gusts
+            currentForce = Math.max(0, Math.min(currentForce, windIntensity * 1.5)); // Cap at 150% of base
+        }
+
+        public void updateDirection(Random random, Season season) {
+            // Keep the wind direction fixed in cardinal directions
+            // Only change direction occasionally to a new cardinal direction
+            if (random.nextInt(1200) == 0) { // Very rarely change direction (once per minute)
+                int direction = random.nextInt(4);
+                switch (direction) {
+                    case 0: // North
+                        windDirection = new Vector(0, 0, -1);
                         break;
-                    case SPRING:
-                        // Very variable in spring
-                        changeIntensity = 0.35;
+                    case 1: // East
+                        windDirection = new Vector(1, 0, 0);
                         break;
-                    case SUMMER:
-                        // More stable in summer
-                        changeIntensity = 0.15;
+                    case 2: // South
+                        windDirection = new Vector(0, 0, 1);
                         break;
-                    case FALL: // Note: RealisticSeasons uses FALL, not AUTUMN
-                        // Moderate changes in autumn
-                        changeIntensity = 0.25;
+                    case 3: // West
+                        windDirection = new Vector(-1, 0, 0);
                         break;
                 }
             }
-
-            Vector newDirection = new Vector(
-                    windDirection.getX() + (random.nextDouble() - 0.5) * changeIntensity,
-                    0,
-                    windDirection.getZ() + (random.nextDouble() - 0.5) * changeIntensity
-            ).normalize();
-
-            windDirection = windDirection.clone().add(newDirection).normalize();
         }
 
         public Vector getWindDirection() {
@@ -663,8 +754,7 @@ public class WindManager {
         }
 
         public double getCurrentForce() {
-            if (!windActive) return 0;
-            return Math.max(0, windIntensity + oscillation[0]);
+            return windActive ? currentForce : 0;
         }
 
         public boolean isWindActive() {
@@ -673,6 +763,14 @@ public class WindManager {
 
         public int getRemainingDuration() {
             return windDuration;
+        }
+
+        public long getLastGustTime() {
+            return lastGustTime;
+        }
+
+        public void setLastGustTime(long time) {
+            lastGustTime = time;
         }
     }
 }
