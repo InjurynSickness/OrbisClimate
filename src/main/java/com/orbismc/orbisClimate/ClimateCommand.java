@@ -1,5 +1,6 @@
 package com.orbismc.orbisClimate;
 
+import com.orbismc.orbisClimate.commands.SubCommand;
 import com.orbismc.orbisClimate.commands.subcommands.*;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;

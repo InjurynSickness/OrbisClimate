@@ -148,56 +148,46 @@ public class WeatherCommand extends BaseSubCommand {
             case "lightrain":
             case "light":
                 return WeatherForecast.WeatherType.LIGHT_RAIN;
-            private WeatherForecast.WeatherType parseWeatherType (String typeName){
-                switch (typeName.toLowerCase()) {
-                    case "clear":
-                        return WeatherForecast.WeatherType.CLEAR;
-                    case "light_rain":
-                    case "lightrain":
-                    case "light":
-                        return WeatherForecast.WeatherType.LIGHT_RAIN;
-                    case "heavy_rain":
-                    case "heavyrain":
-                    case "heavy":
-                    case "rain":
-                        return WeatherForecast.WeatherType.HEAVY_RAIN;
-                    case "thunderstorm":
-                    case "thunder":
-                    case "storm":
-                        return WeatherForecast.WeatherType.THUNDERSTORM;
-                    case "snow":
-                        return WeatherForecast.WeatherType.SNOW;
-                    case "blizzard":
-                        return WeatherForecast.WeatherType.BLIZZARD;
-                    case "sandstorm":
-                    case "sand":
-                        return WeatherForecast.WeatherType.SANDSTORM;
-                    default:
-                        return null;
-                }
-            }
-
-            @Override
-            public List<String> getTabCompletions (CommandSender sender, String[]args){
-                if (args.length == 1) {
-                    return Arrays.asList("set", "clear", "info");
-                } else if (args.length == 2 && args[0].equalsIgnoreCase("set")) {
-                    return Arrays.asList("clear", "light_rain", "heavy_rain", "thunderstorm", "snow", "blizzard", "sandstorm");
-                } else if (args.length == 3 && args[0].equalsIgnoreCase("set")) {
-                    return Arrays.asList("5", "10", "15", "30", "60");
-                }
-                return super.getTabCompletions(sender, args);
-            }
-
-            @Override
-            public String getDescription () {
-                return "Control and monitor weather systems";
-            }
-
-            @Override
-            public String getUsage () {
-                return "/climate weather <set|clear|info>";
-            }
+            case "heavy_rain":
+            case "heavyrain":
+            case "heavy":
+            case "rain":
+                return WeatherForecast.WeatherType.HEAVY_RAIN;
+            case "thunderstorm":
+            case "thunder":
+            case "storm":
+                return WeatherForecast.WeatherType.THUNDERSTORM;
+            case "snow":
+                return WeatherForecast.WeatherType.SNOW;
+            case "blizzard":
+                return WeatherForecast.WeatherType.BLIZZARD;
+            case "sandstorm":
+            case "sand":
+                return WeatherForecast.WeatherType.SANDSTORM;
+            default:
+                return null;
         }
     }
+
+    @Override
+    public List<String> getTabCompletions(CommandSender sender, String[] args) {
+        if (args.length == 1) {
+            return Arrays.asList("set", "clear", "info");
+        } else if (args.length == 2 && args[0].equalsIgnoreCase("set")) {
+            return Arrays.asList("clear", "light_rain", "heavy_rain", "thunderstorm", "snow", "blizzard", "sandstorm");
+        } else if (args.length == 3 && args[0].equalsIgnoreCase("set")) {
+            return Arrays.asList("5", "10", "15", "30", "60");
+        }
+        return super.getTabCompletions(sender, args);
     }
+
+    @Override
+    public String getDescription() {
+        return "Control and monitor weather systems";
+    }
+
+    @Override
+    public String getUsage() {
+        return "/climate weather <set|clear|info>";
+    }
+}
