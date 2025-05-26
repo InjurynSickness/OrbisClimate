@@ -74,8 +74,6 @@ public class BlizzardManager {
         world.setStorm(true);
         world.setThundering(false); // Blizzards don't have thunder
 
-        plugin.getLogger().info("Blizzard started in world: " + world.getName());
-
         // Start main blizzard effects task
         BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             processBlizzardEffects(world);
@@ -99,8 +97,6 @@ public class BlizzardManager {
         if (task != null) {
             task.cancel();
         }
-
-        plugin.getLogger().info("Blizzard ended in world: " + world.getName());
     }
 
     private void processBlizzardEffects(World world) {
@@ -203,7 +199,7 @@ public class BlizzardManager {
             Player player = (Player) entity;
 
             // Send cold messages occasionally
-            if (random.nextInt(200) == 0) { // 1 in 200 chance per tick
+            if (random.nextInt(400) == 0) { // Reduced frequency: 1 in 400 chance per tick
                 player.sendMessage("§b§lYou feel the bitter cold of the blizzard...");
             }
         }

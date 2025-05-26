@@ -198,9 +198,6 @@ public class WindManager {
                             "§7(" + weatherType + seasonStr + " - " + duration + "s)");
                 }
             }
-
-            plugin.getLogger().info("Wind event started in " + world.getName() +
-                    " (" + weatherType + seasonStr + ") for " + duration + " seconds");
         }
     }
 

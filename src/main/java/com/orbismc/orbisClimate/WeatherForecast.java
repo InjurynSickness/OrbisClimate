@@ -153,13 +153,6 @@ public class WeatherForecast {
                 currentDate.getMonth() + "/" + currentDate.getDay() + "/" + currentDate.getYear() :
                 getCurrentDateKey(world);
         String seasonStr = realisticSeasonsEnabled ? currentSeason.toString() : "N/A";
-
-        plugin.getLogger().info("Generated forecast for " + world.getName() +
-                " (" + dateStr + ", " + seasonStr + "): " +
-                "Morning=" + morning.getDisplayName() +
-                ", Afternoon=" + afternoon.getDisplayName() +
-                ", Evening=" + evening.getDisplayName() +
-                ", Night=" + night.getDisplayName());
     }
 
     private WeatherType generateWeatherType(Season season) {
