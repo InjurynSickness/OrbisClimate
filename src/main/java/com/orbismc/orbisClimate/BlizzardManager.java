@@ -15,6 +15,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Vector;
 
 import java.util.*;
 
@@ -72,12 +73,12 @@ public class BlizzardManager {
 
         // Force storm weather
         world.setStorm(true);
-        world.setThundering(false); // Blizzards don't have thunder
+        world.setThundering(false);
 
         // Start main blizzard effects task
         BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             processBlizzardEffects(world);
-        }, 0L, 5L); // Run every 5 ticks (0.25 seconds)
+        }, 0L, 5L);
 
         blizzardTasks.put(world, task);
 
@@ -85,7 +86,7 @@ public class BlizzardManager {
         Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, () -> {
             if (!activeBlizzards.contains(world)) return;
             processBlizzardParticles(world);
-        }, 0L, 1L); // Run every tick for smooth particles
+        }, 0L, 1L);
     }
 
     public void stopBlizzard(World world) {
@@ -126,7 +127,6 @@ public class BlizzardManager {
     }
 
     private boolean isSnowyBiome(org.bukkit.block.Biome biome) {
-        // Check if biome is a snowy/cold biome
         switch (biome) {
             case SNOWY_PLAINS:
             case SNOWY_TAIGA:
@@ -143,7 +143,6 @@ public class BlizzardManager {
             case TAIGA:
             case OLD_GROWTH_SPRUCE_TAIGA:
             case OLD_GROWTH_PINE_TAIGA:
-                // Taiga biomes can have blizzards if cold enough
                 return true;
             default:
                 return false;
@@ -152,28 +151,24 @@ public class BlizzardManager {
 
     private boolean isLocationColdEnough(Location loc, LivingEntity entity) {
         if (realisticSeasonsEnabled && entity instanceof Player) {
-            // Use RealisticSeasons temperature for players
             try {
                 int temperature = seasonsAPI.getTemperature((Player) entity);
-                return temperature <= -10; // Cold temperature threshold
+                return temperature <= -10;
             } catch (Exception e) {
                 // Fallback to biome temperature
             }
         }
 
-        // Use biome temperature as fallback
         return loc.getBlock().getTemperature() <= temperatureThreshold;
     }
 
     private boolean isEntityProtected(LivingEntity entity) {
-        // Check if entity is indoors (you can integrate with your existing indoor detection)
         Location loc = entity.getLocation();
         Block block = loc.clone().add(0, 2, 0).getBlock();
 
-        // Simple overhead protection check
         for (int i = 0; i < 10; i++) {
             if (block.getType().isSolid()) {
-                return true; // Has overhead protection
+                return true;
             }
             block = block.getRelative(org.bukkit.block.BlockFace.UP);
         }
@@ -187,10 +182,7 @@ public class BlizzardManager {
 
         // Apply freezing damage and effect
         if (!entity.isInvulnerable()) {
-            // Damage
             entity.damage(blizzardDamage);
-
-            // Freezing effect (using wither for visual effect, you could create custom effect)
             entity.addPotionEffect(new PotionEffect(PotionEffectType.WITHER, 60, 0, true, false), true);
         }
 
@@ -198,8 +190,7 @@ public class BlizzardManager {
         if (entity instanceof Player) {
             Player player = (Player) entity;
 
-            // Send cold messages occasionally
-            if (random.nextInt(400) == 0) { // Reduced frequency: 1 in 400 chance per tick
+            if (random.nextInt(400) == 0) {
                 player.sendMessage("§b§lYou feel the bitter cold of the blizzard...");
             }
         }
@@ -207,7 +198,7 @@ public class BlizzardManager {
 
     private void extinguishNearbyTorches(Player player) {
         Location loc = player.getLocation();
-        int range = 3; // 3 block radius around player
+        int range = 3;
 
         for (int x = -range; x <= range; x++) {
             for (int y = -range; y <= range; y++) {
@@ -215,14 +206,11 @@ public class BlizzardManager {
                     Block block = loc.clone().add(x, y, z).getBlock();
 
                     if (isTorch(block.getType())) {
-                        // Extinguish torch
                         block.setType(Material.AIR);
 
-                        // Drop stick
                         ItemStack stick = new ItemStack(Material.STICK, 1);
                         block.getWorld().dropItemNaturally(block.getLocation().add(0.5, 0.5, 0.5), stick);
 
-                        // Play extinguish sound
                         player.playSound(block.getLocation(), Sound.BLOCK_FIRE_EXTINGUISH, 0.5f, 1.0f);
                     }
                 }
@@ -242,22 +230,111 @@ public class BlizzardManager {
     private void processBlizzardParticles(World world) {
         for (Player player : world.getPlayers()) {
             if (!player.getWorld().equals(world)) continue;
+            
+            // Skip if player has particles disabled
+            if (!plugin.isPlayerParticlesEnabled(player)) {
+                continue;
+            }
 
-            // Generate particles around player
+            // Generate enhanced blizzard particles
             generateBlizzardParticles(player);
+            
+            // NEW: Create blizzard walls for immersive effect
+            if (random.nextInt(4) == 0) { // 25% chance per tick
+                createBlizzardWalls(player);
+            }
+        }
+    }
+
+    // NEW: Enhanced blizzard particle walls
+    private void createBlizzardWalls(Player player) {
+        Location playerLoc = player.getLocation();
+        int wallCount = 4; // Four walls (N, S, E, W)
+        
+        for (int wall = 0; wall < wallCount; wall++) {
+            createBlizzardWall(player, playerLoc, wall);
+        }
+    }
+
+    private void createBlizzardWall(Player player, Location center, int wallIndex) {
+        // Calculate wall position and orientation
+        Vector wallDirection;
+        Vector wallNormal;
+        
+        switch (wallIndex) {
+            case 0: // North wall
+                wallDirection = new Vector(1, 0, 0);
+                wallNormal = new Vector(0, 0, 1);
+                break;
+            case 1: // South wall
+                wallDirection = new Vector(1, 0, 0);
+                wallNormal = new Vector(0, 0, -1);
+                break;
+            case 2: // East wall
+                wallDirection = new Vector(0, 0, 1);
+                wallNormal = new Vector(-1, 0, 0);
+                break;
+            case 3: // West wall
+                wallDirection = new Vector(0, 0, 1);
+                wallNormal = new Vector(1, 0, 0);
+                break;
+            default:
+                return;
+        }
+        
+        // Position wall at edge of effect range
+        double wallDistance = particleRange * 0.8;
+        Location wallCenter = center.clone().add(wallNormal.clone().multiply(-wallDistance));
+        
+        // Create wall particles
+        int wallWidth = 15;
+        int wallHeight = 6;
+        
+        for (int x = -wallWidth/2; x <= wallWidth/2; x++) {
+            for (int y = 0; y < wallHeight; y++) {
+                if (random.nextInt(3) != 0) continue; // Sparse wall
+                
+                Location particleLoc = wallCenter.clone().add(
+                    wallDirection.clone().multiply(x * 0.8)
+                ).add(0, y * 0.5, 0);
+                
+                // Add randomness
+                particleLoc.add(
+                    (random.nextDouble() - 0.5) * 0.6,
+                    (random.nextDouble() - 0.5) * 0.3,
+                    (random.nextDouble() - 0.5) * 0.6
+                );
+                
+                // Move wall toward player
+                Vector velocity = wallNormal.clone().multiply(0.3);
+                
+                player.spawnParticle(Particle.CLOUD, particleLoc, 1,
+                    velocity.getX(), velocity.getY(), velocity.getZ(), 0.05);
+                    
+                // Add snow particles
+                if (random.nextInt(2) == 0) {
+                    player.spawnParticle(Particle.SNOWFLAKE, particleLoc, 1,
+                        velocity.getX() * 0.5, velocity.getY() * 0.5, velocity.getZ() * 0.5, 0.02);
+                }
+            }
         }
     }
 
     private void generateBlizzardParticles(Player player) {
         Location playerLoc = player.getLocation();
 
-        // Performance optimization - reduce particles based on distance and settings
-        int actualRange = (int) (particleRange * particleMultiplier);
+        // Performance optimization - reduce particles based on nearby players
+        int nearbyPlayers = (int) player.getWorld().getPlayers().stream()
+                .filter(p -> p.getLocation().distance(player.getLocation()) <= particleRange * 2)
+                .count();
+        
+        double performanceMultiplier = Math.max(0.3, 1.0 / Math.max(1, nearbyPlayers - 1));
+        int actualRange = (int) (particleRange * particleMultiplier * performanceMultiplier);
 
         for (int x = -actualRange; x <= actualRange; x++) {
             for (int z = -actualRange; z <= actualRange; z++) {
                 // Skip some particles for performance
-                if (random.nextDouble() > particleMultiplier) continue;
+                if (random.nextDouble() > particleMultiplier * performanceMultiplier) continue;
 
                 Location particleLoc = playerLoc.clone().add(x, 0, z);
 
@@ -276,36 +353,79 @@ public class BlizzardManager {
                 for (int i = 0; i < 3; i++) {
                     Location spawnLoc = particleLoc.clone().add(
                             random.nextDouble() - 0.5,
-                            2 + (random.nextDouble() * 3), // 2-5 blocks above surface
+                            2 + (random.nextDouble() * 3),
                             random.nextDouble() - 0.5
                     );
 
-                    // Create falling snow particles
-                    player.spawnParticle(Particle.CLOUD, spawnLoc, 1,
-                            0.1, // X spread
-                            0.0, // Y spread
-                            0.1, // Z spread
-                            0.02 // Speed (slow falling)
+                    // Create falling snow particles with enhanced movement
+                    Vector windEffect = new Vector(
+                        (random.nextDouble() - 0.5) * 0.2,
+                        -0.1, // Downward motion
+                        (random.nextDouble() - 0.5) * 0.2
                     );
 
-                    // Add some snowflake particles for effect
+                    player.spawnParticle(Particle.CLOUD, spawnLoc, 1,
+                            windEffect.getX(), windEffect.getY(), windEffect.getZ(), 0.02);
+
+                    // Add snowflake particles for enhanced effect
                     if (random.nextInt(3) == 0) {
                         player.spawnParticle(Particle.SNOWFLAKE, spawnLoc, 1,
-                                0.2, 0.2, 0.2, 0.01);
+                                windEffect.getX() * 0.5, windEffect.getY() * 0.5, windEffect.getZ() * 0.5, 0.01);
+                    }
+                    
+                    // Add white dust particles for density
+                    if (random.nextInt(4) == 0) {
+                        Particle.DustOptions whiteDust = new Particle.DustOptions(
+                            org.bukkit.Color.fromRGB(255, 255, 255), 1.0f
+                        );
+                        player.spawnParticle(Particle.DUST, spawnLoc, 1,
+                            windEffect.getX(), windEffect.getY(), windEffect.getZ(), 0.02, whiteDust);
                     }
                 }
 
-                // Edge particles for storm effect
+                // Enhanced edge particles for storm effect
                 if (Math.abs(x) == actualRange || Math.abs(z) == actualRange) {
-                    player.spawnParticle(Particle.CLOUD, particleLoc.add(0.5, 4, 0.5), 3,
-                            0.5, 1.0, 0.5, 0.1);
+                    Location edgeLoc = particleLoc.add(0.5, 4, 0.5);
+                    
+                    // Create swirling effect at edges
+                    for (int swirl = 0; swirl < 3; swirl++) {
+                        double angle = (System.currentTimeMillis() / 100.0 + swirl * 120) % 360;
+                        Vector swirlOffset = new Vector(
+                            Math.cos(Math.toRadians(angle)) * 1.5,
+                            Math.sin(System.currentTimeMillis() / 500.0 + swirl) * 0.5,
+                            Math.sin(Math.toRadians(angle)) * 1.5
+                        );
+                        
+                        Location swirlLoc = edgeLoc.clone().add(swirlOffset);
+                        
+                        player.spawnParticle(Particle.CLOUD, swirlLoc, 1,
+                                0.5, 1.0, 0.5, 0.1);
+                        
+                        if (random.nextInt(2) == 0) {
+                            player.spawnParticle(Particle.SNOWFLAKE, swirlLoc, 1,
+                                0.3, 0.3, 0.3, 0.05);
+                        }
+                    }
                 }
             }
         }
 
-        // Play wind sounds occasionally
-        if (random.nextInt(60) == 0) { // Every ~3 seconds
-            player.playSound(playerLoc, Sound.WEATHER_RAIN_ABOVE, 0.8f, 0.4f);
+        // Enhanced wind sounds with directional effect
+        if (random.nextInt(60) == 0) {
+            // Vary pitch and volume based on "wind direction"
+            float pitch = 0.3f + random.nextFloat() * 0.2f;
+            float volume = 0.6f + random.nextFloat() * 0.4f;
+            player.playSound(playerLoc, Sound.WEATHER_RAIN_ABOVE, volume, pitch);
+        }
+        
+        // Add howling wind sound occasionally
+        if (random.nextInt(120) == 0) {
+            player.playSound(playerLoc, Sound.ITEM_ELYTRA_FLYING, 0.4f, 0.3f);
+        }
+        
+        // Distant thunder-like sounds for intense blizzard
+        if (random.nextInt(200) == 0) {
+            player.playSound(playerLoc, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 0.2f, 0.5f);
         }
     }
 

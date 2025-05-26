@@ -1,11 +1,14 @@
 package com.orbismc.orbisClimate;
 
 import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Random;
 
 public class OrbisClimate extends JavaPlugin implements Listener {
@@ -17,7 +20,11 @@ public class OrbisClimate extends JavaPlugin implements Listener {
     private ClimateZoneManager climateZoneManager;
     private TemperatureManager temperatureManager;
     private WeatherProgressionManager weatherProgressionManager;
+    private DynamicSoundManager dynamicSoundManager;
     private Random random;
+
+    // NEW: Player particle preferences
+    private final Map<Player, Boolean> playerParticleSettings = new HashMap<>();
 
     @Override
     public void onEnable() {
@@ -66,6 +73,11 @@ public class OrbisClimate extends JavaPlugin implements Listener {
             getLogger().info("Initializing sandstorm manager...");
             sandstormManager = new SandstormManager(this, weatherForecast, windManager);
             getLogger().info("✓ Sandstorm manager initialized");
+
+            // NEW: Initialize dynamic sound manager
+            getLogger().info("Initializing dynamic sound manager...");
+            dynamicSoundManager = new DynamicSoundManager(this);
+            getLogger().info("✓ Dynamic sound manager initialized");
 
             // Register event listeners
             getServer().getPluginManager().registerEvents(this, this);
@@ -143,6 +155,7 @@ public class OrbisClimate extends JavaPlugin implements Listener {
         getLogger().info("Drought System: " + (getConfig().getBoolean("drought.effects.enabled", true) ? "ENABLED" : "DISABLED"));
         getLogger().info("Lightning Warnings: " + (getConfig().getBoolean("weather_progression.lightning_warnings.enabled", true) ? "ENABLED" : "DISABLED"));
         getLogger().info("Hail Effects: " + (getConfig().getBoolean("weather_progression.hail.enabled", true) ? "ENABLED" : "DISABLED"));
+        getLogger().info("Dynamic Sound System: " + (dynamicSoundManager != null ? "ENABLED" : "DISABLED"));
     }
 
     @Override
@@ -174,6 +187,10 @@ public class OrbisClimate extends JavaPlugin implements Listener {
                 weatherProgressionManager.shutdown();
                 getLogger().info("✓ Weather progression manager shut down");
             }
+            if (dynamicSoundManager != null) {
+                dynamicSoundManager.shutdown();
+                getLogger().info("✓ Dynamic sound manager shut down");
+            }
         } catch (Exception e) {
             getLogger().severe("Error shutting down managers: " + e.getMessage());
             e.printStackTrace();
@@ -193,6 +210,9 @@ public class OrbisClimate extends JavaPlugin implements Listener {
         if (climateZoneManager != null) {
             climateZoneManager.clearPlayerCache(event.getPlayer());
         }
+
+        // Initialize default particle settings
+        playerParticleSettings.put(event.getPlayer(), true);
     }
 
     @EventHandler
@@ -205,6 +225,9 @@ public class OrbisClimate extends JavaPlugin implements Listener {
         if (climateZoneManager != null) {
             climateZoneManager.clearPlayerCache(event.getPlayer());
         }
+
+        // Clean up particle settings
+        playerParticleSettings.remove(event.getPlayer());
     }
 
     // Configuration reload method
@@ -229,8 +252,20 @@ public class OrbisClimate extends JavaPlugin implements Listener {
         if (weatherProgressionManager != null) {
             weatherProgressionManager.reloadConfig();
         }
+        if (dynamicSoundManager != null) {
+            dynamicSoundManager.reloadConfig();
+        }
 
         getLogger().info("Configuration reloaded for all managers!");
+    }
+
+    // NEW: Player particle preference methods
+    public boolean isPlayerParticlesEnabled(Player player) {
+        return playerParticleSettings.getOrDefault(player, true);
+    }
+
+    public void setPlayerParticlesEnabled(Player player, boolean enabled) {
+        playerParticleSettings.put(player, enabled);
     }
 
     // Getters for managers
@@ -264,5 +299,9 @@ public class OrbisClimate extends JavaPlugin implements Listener {
 
     public WeatherProgressionManager getWeatherProgressionManager() {
         return weatherProgressionManager;
+    }
+
+    public DynamicSoundManager getDynamicSoundManager() {
+        return dynamicSoundManager;
     }
 }

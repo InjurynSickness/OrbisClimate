@@ -44,6 +44,7 @@ public class WindCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(ChatColor.YELLOW + "/wind zone " + ChatColor.WHITE + "- Show climate zone info");
             sender.sendMessage(ChatColor.YELLOW + "/wind regenerate " + ChatColor.WHITE + "- Regenerate today's forecast");
             sender.sendMessage(ChatColor.YELLOW + "/wind status " + ChatColor.WHITE + "- Show integration status");
+            sender.sendMessage(ChatColor.YELLOW + "/wind toggle [on|off] " + ChatColor.WHITE + "- Toggle particles on/off");
             sender.sendMessage(ChatColor.YELLOW + "/wind debug " + ChatColor.WHITE + "- Show debug information (Admin)");
             return true;
         }
@@ -118,6 +119,28 @@ public class WindCommand implements CommandExecutor, TabCompleter {
 
             case "status":
                 showIntegrationStatus(sender);
+                break;
+
+            // NEW: Particle toggle command
+            case "toggle":
+                if (!(sender instanceof Player)) {
+                    sender.sendMessage(ChatColor.RED + "This command can only be used by players!");
+                    return true;
+                }
+
+                Player togglePlayer = (Player) sender;
+                
+                if (args.length < 2) {
+                    boolean current = plugin.isPlayerParticlesEnabled(togglePlayer);
+                    plugin.setPlayerParticlesEnabled(togglePlayer, !current);
+                    togglePlayer.sendMessage(ChatColor.GREEN + "Weather particles " + 
+                        (!current ? "enabled" : "disabled") + "!");
+                } else {
+                    boolean setting = args[1].equalsIgnoreCase("on") || args[1].equalsIgnoreCase("true");
+                    plugin.setPlayerParticlesEnabled(togglePlayer, setting);
+                    togglePlayer.sendMessage(ChatColor.GREEN + "Weather particles " + 
+                        (setting ? "enabled" : "disabled") + "!");
+                }
                 break;
 
             case "debug":
@@ -203,6 +226,11 @@ public class WindCommand implements CommandExecutor, TabCompleter {
         boolean isIndoors = windManager.isPlayerIndoors(player);
         player.sendMessage(ChatColor.AQUA + "Location: " + ChatColor.WHITE +
                 (isIndoors ? "Indoors (protected from weather)" : "Outdoors"));
+
+        // Show particle status
+        boolean particlesEnabled = plugin.isPlayerParticlesEnabled(player);
+        player.sendMessage(ChatColor.AQUA + "Particles: " + ChatColor.WHITE +
+                (particlesEnabled ? "Enabled" : "Disabled") + " (use /wind toggle to change)");
 
         // Show active effects
         if (!isIndoors) {
@@ -374,6 +402,7 @@ public class WindCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(ChatColor.WHITE + "  ClimateZoneManager: " + (climateZoneManager != null ? "✓" : "✗"));
         player.sendMessage(ChatColor.WHITE + "  TemperatureManager: " + (temperatureManager != null ? "✓" : "✗"));
         player.sendMessage(ChatColor.WHITE + "  WeatherProgressionManager: " + (plugin.getWeatherProgressionManager() != null ? "✓" : "✗"));
+        player.sendMessage(ChatColor.WHITE + "  DynamicSoundManager: " + (plugin.getDynamicSoundManager() != null ? "✓" : "✗"));
 
         if (climateZoneManager != null && temperatureManager != null) {
             // Current values
@@ -384,6 +413,7 @@ public class WindCommand implements CommandExecutor, TabCompleter {
             player.sendMessage(ChatColor.WHITE + "  World Weather: " + weatherForecast.getCurrentWeather(player.getWorld()));
             player.sendMessage(ChatColor.WHITE + "  Indoors: " + windManager.isPlayerIndoors(player));
             player.sendMessage(ChatColor.WHITE + "  Drought: " + climateZoneManager.isPlayerInDrought(player));
+            player.sendMessage(ChatColor.WHITE + "  Particles Enabled: " + plugin.isPlayerParticlesEnabled(player));
         }
 
         // Performance info
@@ -412,6 +442,7 @@ public class WindCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(ChatColor.WHITE + "  Aurora Effects: " + getFeatureStatus("aurora.enabled"));
         sender.sendMessage(ChatColor.WHITE + "  Heat Mirages: " + getFeatureStatus("heat_mirages.enabled"));
         sender.sendMessage(ChatColor.WHITE + "  Drought System: " + getFeatureStatus("drought.effects.enabled"));
+        sender.sendMessage(ChatColor.WHITE + "  Dynamic Sound System: " + (plugin.getDynamicSoundManager() != null ? "ENABLED" : "DISABLED"));
 
         // Show world-specific info if player
         if (sender instanceof Player) {
@@ -483,7 +514,9 @@ public class WindCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return Arrays.asList("reload", "info", "forecast", "temperature", "zone", "regenerate", "status", "debug");
+            return Arrays.asList("reload", "info", "forecast", "temperature", "zone", "regenerate", "status", "toggle", "debug");
+        } else if (args.length == 2 && args[0].equalsIgnoreCase("toggle")) {
+            return Arrays.asList("on", "off");
         }
         return null;
     }

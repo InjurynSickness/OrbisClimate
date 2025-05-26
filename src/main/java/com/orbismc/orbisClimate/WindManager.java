@@ -16,6 +16,8 @@ import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 public class WindManager {
 
@@ -28,7 +30,7 @@ public class WindManager {
     private int maxParticles;
     private double particleRange;
     private boolean windEnabled;
-    private int minWindHeight; // New: minimum height for wind effects
+    private int minWindHeight;
 
     // Wind chance configuration
     private double clearWeatherChance;
@@ -47,6 +49,12 @@ public class WindManager {
     // Blocks that don't count as "solid ceiling"
     private final Set<Material> bannedBlocks = new HashSet<>();
 
+    // Performance optimizations
+    private final ParticleBatch particleBatch = new ParticleBatch();
+    private final Map<String, Boolean> locationExposureCache = new ConcurrentHashMap<>();
+    private final Map<String, Long> exposureCacheTimestamps = new ConcurrentHashMap<>();
+    private static final long EXPOSURE_CACHE_DURATION = 15000; // 15 seconds
+
     private final WeatherForecast weatherForecast;
 
     public WindManager(OrbisClimate plugin, Random random, WeatherForecast weatherForecast) {
@@ -59,12 +67,68 @@ public class WindManager {
         startWindSystem();
     }
 
+    // PERFORMANCE OPTIMIZATION: Batch particle processing
+    private static class ParticleBatch {
+        private final List<ParticleData> particles = new ArrayList<>();
+        private static final int MAX_BATCH_SIZE = 50;
+        
+        public void addParticle(Player player, Location loc, Particle type, Object data, Vector velocity) {
+            particles.add(new ParticleData(player, loc, type, data, velocity));
+            
+            if (particles.size() >= MAX_BATCH_SIZE) {
+                flush();
+            }
+        }
+        
+        public void flush() {
+            if (particles.isEmpty()) return;
+            
+            // Group particles by player for better performance
+            Map<Player, List<ParticleData>> playerParticles = particles.stream()
+                .collect(Collectors.groupingBy(p -> p.player));
+                
+            for (Map.Entry<Player, List<ParticleData>> entry : playerParticles.entrySet()) {
+                Player player = entry.getKey();
+                List<ParticleData> playerBatch = entry.getValue();
+                
+                // Spawn all particles for this player in one batch
+                for (ParticleData p : playerBatch) {
+                    if (p.data != null) {
+                        player.spawnParticle(p.type, p.location, 1, 
+                            p.velocity.getX(), p.velocity.getY(), p.velocity.getZ(), 0, p.data);
+                    } else {
+                        player.spawnParticle(p.type, p.location, 1,
+                            p.velocity.getX(), p.velocity.getY(), p.velocity.getZ(), 0);
+                    }
+                }
+            }
+            
+            particles.clear();
+        }
+        
+        private static class ParticleData {
+            final Player player;
+            final Location location;
+            final Particle type;
+            final Object data;
+            final Vector velocity;
+            
+            ParticleData(Player player, Location loc, Particle type, Object data, Vector velocity) {
+                this.player = player;
+                this.location = loc.clone();
+                this.type = type;
+                this.data = data;
+                this.velocity = velocity.clone();
+            }
+        }
+    }
+
     private void loadConfig() {
         interiorHeightDistance = plugin.getConfig().getInt("wind.interior_height_distance", 50);
         maxParticles = plugin.getConfig().getInt("wind.max_particles", 100);
         particleRange = plugin.getConfig().getDouble("wind.particle_range", 10.0);
         windEnabled = plugin.getConfig().getBoolean("wind.enabled", true);
-        minWindHeight = plugin.getConfig().getInt("wind.min_height", 50); // New: minimum height for wind
+        minWindHeight = plugin.getConfig().getInt("wind.min_height", 50);
 
         // Wind event chances (percentage)
         clearWeatherChance = plugin.getConfig().getDouble("wind.chances.clear_weather", 10.0);
@@ -111,6 +175,9 @@ public class WindManager {
         for (World world : Bukkit.getWorlds()) {
             updateWorldWind(world);
         }
+        
+        // Flush any remaining particles
+        particleBatch.flush();
     }
 
     private void updateWorldWind(World world) {
@@ -123,7 +190,6 @@ public class WindManager {
         // Check for wind events periodically
         Integer cooldown = windCheckCooldown.get(world);
         if (cooldown == null || cooldown <= 0) {
-            // Check if wind should start (every 30 seconds)
             windCheckCooldown.put(world, 600); // 30 seconds * 20 ticks
 
             if (!windData.isWindActive()) {
@@ -137,16 +203,21 @@ public class WindManager {
         windData.update();
 
         if (!windData.isWindActive()) {
-            return; // No wind event active
+            return;
         }
 
         // Update wind direction occasionally - seasonal influence
-        if (random.nextInt(200) == 0) { // Change direction every ~10 seconds
+        if (random.nextInt(200) == 0) {
             windData.updateDirection(random, weatherForecast.getCurrentSeason(world));
         }
 
         // Process players
         for (Player player : world.getPlayers()) {
+            // Skip if player has particles disabled
+            if (!plugin.isPlayerParticlesEnabled(player)) {
+                continue;
+            }
+            
             // Check minimum height requirement for wind effects
             if (player.getLocation().getBlockY() < minWindHeight) {
                 continue;
@@ -162,10 +233,9 @@ public class WindManager {
 
     private void checkForWindEvent(World world, WindData windData) {
         double chance = getWindChanceForWeather(world);
-        double roll = random.nextDouble() * 100.0; // 0-100
+        double roll = random.nextDouble() * 100.0;
 
         if (roll <= chance) {
-            // Start wind event!
             int duration = minWindDuration + random.nextInt(maxWindDuration - minWindDuration + 1);
             double intensity = getWindIntensityForWeather(world);
 
@@ -174,21 +244,20 @@ public class WindManager {
             if (currentSeason != null) {
                 switch (currentSeason) {
                     case WINTER:
-                        duration = (int) (duration * 1.3); // 30% longer in winter
+                        duration = (int) (duration * 1.3);
                         break;
                     case SPRING:
-                        duration = (int) (duration * 1.1); // 10% longer in spring
+                        duration = (int) (duration * 1.1);
                         break;
-                    case FALL: // Note: RealisticSeasons uses FALL, not AUTUMN
-                        duration = (int) (duration * 1.2); // 20% longer in autumn
+                    case FALL:
+                        duration = (int) (duration * 1.2);
                         break;
-                    // Summer keeps default duration
                 }
             }
 
-            windData.startWindEvent(duration * 20, intensity); // Convert to ticks
+            windData.startWindEvent(duration * 20, intensity);
 
-            // Notify players in the world (only those with permission)
+            // Notify players
             String weatherType = getWeatherName(world);
             String seasonStr = currentSeason != null ? " (" + currentSeason.toString().toLowerCase() + ")" : "";
 
@@ -218,7 +287,7 @@ public class WindManager {
                 baseChance = snowChance;
                 break;
             case BLIZZARD:
-                baseChance = thunderstormChance * 0.8; // Slightly less than thunderstorm
+                baseChance = thunderstormChance * 0.8;
                 break;
             case CLEAR:
             default:
@@ -230,21 +299,21 @@ public class WindManager {
         if (currentSeason != null) {
             switch (currentSeason) {
                 case WINTER:
-                    baseChance *= 1.4; // 40% more wind in winter
+                    baseChance *= 1.4;
                     break;
                 case SPRING:
-                    baseChance *= 1.2; // 20% more wind in spring
+                    baseChance *= 1.2;
                     break;
-                case FALL: // Note: RealisticSeasons uses FALL, not AUTUMN
-                    baseChance *= 1.3; // 30% more wind in autumn
+                case FALL:
+                    baseChance *= 1.3;
                     break;
                 case SUMMER:
-                    baseChance *= 0.8; // 20% less wind in summer
+                    baseChance *= 0.8;
                     break;
             }
         }
 
-        return Math.min(100.0, baseChance); // Cap at 100%
+        return Math.min(100.0, baseChance);
     }
 
     private double getWindIntensityForWeather(World world) {
@@ -254,23 +323,23 @@ public class WindManager {
         double baseIntensity;
         switch (currentWeather) {
             case THUNDERSTORM:
-                baseIntensity = 1.0; // 100% intensity
+                baseIntensity = 1.0;
                 break;
             case BLIZZARD:
-                baseIntensity = 0.9; // 90% intensity
+                baseIntensity = 0.9;
                 break;
             case HEAVY_RAIN:
-                baseIntensity = 0.4; // 40% intensity for heavy rain
+                baseIntensity = 0.4;
                 break;
             case LIGHT_RAIN:
-                baseIntensity = 0.25; // 25% intensity for light rain
+                baseIntensity = 0.25;
                 break;
             case SNOW:
-                baseIntensity = 0.2; // 20% intensity for light snow
+                baseIntensity = 0.2;
                 break;
             case CLEAR:
             default:
-                baseIntensity = 0.1; // 10% intensity
+                baseIntensity = 0.1;
                 break;
         }
 
@@ -278,19 +347,18 @@ public class WindManager {
         if (currentSeason != null) {
             switch (currentSeason) {
                 case WINTER:
-                    baseIntensity *= 1.2; // 20% more intense in winter
+                    baseIntensity *= 1.2;
                     break;
                 case SPRING:
-                    baseIntensity *= 1.1; // 10% more intense in spring
+                    baseIntensity *= 1.1;
                     break;
-                case FALL: // Note: RealisticSeasons uses FALL, not AUTUMN
-                    baseIntensity *= 1.15; // 15% more intense in autumn
+                case FALL:
+                    baseIntensity *= 1.15;
                     break;
-                // Summer keeps base intensity
             }
         }
 
-        return Math.min(1.0, baseIntensity); // Cap at 100%
+        return Math.min(1.0, baseIntensity);
     }
 
     private String getWeatherName(World world) {
@@ -298,15 +366,55 @@ public class WindManager {
         return currentWeather.getDisplayName();
     }
 
+    // ENHANCED INDOOR DETECTION with caching
     public boolean isPlayerIndoors(Player player) {
         Location loc = player.getLocation();
+        String locationKey = getLocationKey(loc);
+        long currentTime = System.currentTimeMillis();
+        
+        // Check cache first
+        Long cacheTime = exposureCacheTimestamps.get(locationKey);
+        if (cacheTime != null && (currentTime - cacheTime) < EXPOSURE_CACHE_DURATION) {
+            Boolean cached = locationExposureCache.get(locationKey);
+            if (cached != null) {
+                return !cached; // Cache stores exposure, we want indoor status
+            }
+        }
 
-        // Multi-directional shelter detection - check if player has solid blocks protecting them
-        return hasOverheadShelter(loc) || hasDirectionalShelter(loc);
+        // Calculate exposure
+        boolean isExposed = hasOverheadShelter(loc) ? false : isLocationExposed(loc);
+        
+        // Cache result
+        locationExposureCache.put(locationKey, isExposed);
+        exposureCacheTimestamps.put(locationKey, currentTime);
+        
+        // Clean cache periodically
+        if (random.nextInt(200) == 0) {
+            cleanExposureCache(currentTime);
+        }
+        
+        return !isExposed;
+    }
+
+    private String getLocationKey(Location loc) {
+        // Round to 5-block chunks for caching
+        int chunkX = loc.getBlockX() / 5;
+        int chunkZ = loc.getBlockZ() / 5;
+        int chunkY = loc.getBlockY() / 5;
+        return loc.getWorld().getName() + ":" + chunkX + ":" + chunkY + ":" + chunkZ;
+    }
+
+    private void cleanExposureCache(long currentTime) {
+        exposureCacheTimestamps.entrySet().removeIf(entry -> {
+            if (currentTime - entry.getValue() > EXPOSURE_CACHE_DURATION) {
+                locationExposureCache.remove(entry.getKey());
+                return true;
+            }
+            return false;
+        });
     }
 
     private boolean hasOverheadShelter(Location loc) {
-        // Check directly above player
         Block block = loc.clone().add(0, 2, 0).getBlock();
         for (int i = 0; i < interiorHeightDistance; i++) {
             if (block.getType().isSolid() && !bannedBlocks.contains(block.getType())) {
@@ -317,44 +425,45 @@ public class WindManager {
         return false;
     }
 
-    private boolean hasDirectionalShelter(Location loc) {
-        // Check for walls/shelter in multiple directions (like DeadlyDisasters does)
-        Vector[] directions = {
-                new Vector(1, 0, 0),   // East
-                new Vector(-1, 0, 0),  // West
-                new Vector(0, 0, 1),   // South
-                new Vector(0, 0, -1),  // North
-                new Vector(1, 0, 1),   // Southeast
-                new Vector(-1, 0, 1),  // Southwest
-                new Vector(1, 0, -1),  // Northeast
-                new Vector(-1, 0, -1)  // Northwest
+    private boolean isLocationExposed(Location loc) {
+        // Advanced raycast detection for complex structures
+        Vector[] rayDirections = {
+            new Vector(0, 1, 0),     // Up
+            new Vector(1, 0.5, 0),   // Northeast up
+            new Vector(-1, 0.5, 0),  // Northwest up
+            new Vector(0, 0.5, 1),   // Southeast up
+            new Vector(0, 0.5, -1),  // Southwest up
+            new Vector(1, 0, 0),     // East
+            new Vector(-1, 0, 0),    // West
+            new Vector(0, 0, 1),     // South
+            new Vector(0, 0, -1)     // North
         };
-
-        int shelterCount = 0;
-        for (Vector direction : directions) {
-            if (hasShelterInDirection(loc, direction, 5)) {
-                shelterCount++;
+        
+        int exposedRays = 0;
+        int totalRays = rayDirections.length;
+        
+        for (Vector direction : rayDirections) {
+            if (!isRayBlocked(loc, direction, 8)) {
+                exposedRays++;
             }
         }
-
-        // If player has shelter in at least 4 directions, consider them indoors
-        return shelterCount >= 4;
+        
+        // If more than 40% of rays are exposed, consider location exposed
+        return (double) exposedRays / totalRays > 0.4;
     }
 
-    private boolean hasShelterInDirection(Location loc, Vector direction, int maxDistance) {
-        Location checkLoc = loc.clone();
-        for (int i = 1; i <= maxDistance; i++) {
-            checkLoc.add(direction);
-            Block block = checkLoc.getBlock();
-
+    private boolean isRayBlocked(Location start, Vector direction, int maxDistance) {
+        Location current = start.clone();
+        
+        for (int i = 0; i < maxDistance; i++) {
+            current.add(direction);
+            Block block = current.getBlock();
+            
             if (block.getType().isSolid() && !bannedBlocks.contains(block.getType())) {
-                // Check vertically too - need ceiling protection
-                Block aboveBlock = block.getRelative(BlockFace.UP);
-                if (aboveBlock.getType().isSolid() && !bannedBlocks.contains(aboveBlock.getType())) {
-                    return true;
-                }
+                return true;
             }
         }
+        
         return false;
     }
 
@@ -368,18 +477,71 @@ public class WindManager {
         Vector windDirection = windData.getWindDirection();
         double force = windData.getCurrentForce();
 
-        // Add 2-second delay between wind gusts
-        if (windData.getLastGustTime() + 40 > System.currentTimeMillis() / 50) { // 40 ticks = 2 seconds
-            return; // Skip this gust, too soon
+        // Add delay between wind gusts
+        if (windData.getLastGustTime() + 40 > System.currentTimeMillis() / 50) {
+            return;
         }
         windData.setLastGustTime(System.currentTimeMillis() / 50);
 
-        // Create particle effects
+        // Create enhanced particle effects
+        createWindTrails(player, windDirection, force);
         createWindParticles(player, windDirection, force);
 
         // Play wind sounds occasionally with seasonal variation
-        if (random.nextInt(60) == 0) { // Every ~3 seconds
+        if (random.nextInt(60) == 0) {
             playSeasonalWindSound(player, force);
+        }
+    }
+
+    // NEW: Wind direction particle trails
+    private void createWindTrails(Player player, Vector windDirection, double force) {
+        int streamCount = (int) (3 + force * 5);
+        
+        for (int stream = 0; stream < streamCount; stream++) {
+            createParticleStream(player, windDirection, force, stream);
+        }
+    }
+
+    private void createParticleStream(Player player, Vector windDirection, double force, int streamIndex) {
+        Location playerLoc = player.getLocation();
+        
+        // Create stream starting position
+        double angle = (streamIndex * 360.0 / 8.0) + random.nextDouble() * 45;
+        double startDistance = 8 + random.nextDouble() * 4;
+        
+        Vector startOffset = new Vector(
+            Math.cos(Math.toRadians(angle)) * startDistance,
+            random.nextDouble() * 3 + 1,
+            Math.sin(Math.toRadians(angle)) * startDistance
+        );
+        
+        Location streamStart = playerLoc.clone().add(startOffset);
+        
+        // Create particle trail flowing in wind direction
+        int particlesInStream = (int) (6 + force * 4);
+        Vector flowDirection = windDirection.clone().multiply(2.0);
+        
+        for (int i = 0; i < particlesInStream; i++) {
+            Location particleLoc = streamStart.clone().add(
+                flowDirection.clone().multiply(i * 0.5)
+            );
+            
+            // Add random drift
+            particleLoc.add(
+                (random.nextDouble() - 0.5) * 0.8,
+                (random.nextDouble() - 0.5) * 0.4,
+                (random.nextDouble() - 0.5) * 0.8
+            );
+            
+            Vector velocity = windDirection.clone().multiply(force * 0.6);
+            
+            BiomeParticleData particleData = getBiomeParticleData(
+                particleLoc.getBlock().getBiome(), 
+                weatherForecast.getCurrentSeason(player.getWorld()),
+                weatherForecast.getCurrentWeather(player.getWorld())
+            );
+            
+            spawnBiomeParticleOptimized(player, particleLoc, velocity, force, particleData, true);
         }
     }
 
@@ -389,7 +551,7 @@ public class WindManager {
 
         Location loc = player.getLocation();
 
-        // Dynamic volume and pitch based on wind force
+        // Dynamic volume and pitch
         float baseVolume = 0.3f;
         float maxVolume = 1.0f;
         float volume = (float) (baseVolume + (force * (maxVolume - baseVolume)));
@@ -398,36 +560,30 @@ public class WindManager {
         float maxPitch = 1.2f;
         float pitch = (float) (basePitch + (force * (maxPitch - basePitch)));
 
-        // Choose sound based on weather intensity
         Sound windSound;
         if (force > 0.7) {
-            // Strong wind - use weather rain sound
             windSound = Sound.WEATHER_RAIN;
-            pitch *= 0.8f; // Lower pitch for stronger winds
+            pitch *= 0.8f;
         } else if (force > 0.4) {
-            // Medium wind - use ambient weather sound
             windSound = Sound.WEATHER_RAIN_ABOVE;
             pitch *= 0.9f;
         } else {
-            // Light wind - use item sounds for subtle effect
             windSound = Sound.ITEM_ELYTRA_FLYING;
-            volume *= 0.5f; // Quieter for light winds
-            pitch *= 1.1f;  // Higher pitch for gentler sound
+            volume *= 0.5f;
+            pitch *= 1.1f;
         }
 
         // Seasonal sound modifications
         if (currentWeather == WeatherForecast.WeatherType.SNOW || currentWeather == WeatherForecast.WeatherType.BLIZZARD) {
-            // Snow/winter wind sounds - lower and more haunting
             pitch *= 0.7f;
-            volume *= 1.2f; // Slightly louder for blizzard effect
+            volume *= 1.2f;
         } else if (currentSeason == Season.WINTER) {
-            pitch *= 0.85f; // Slightly lower for winter
+            pitch *= 0.85f;
         } else if (currentSeason == Season.SUMMER) {
-            pitch *= 1.1f; // Slightly higher for summer breeze
-            volume *= 0.8f; // Quieter for gentler summer winds
+            pitch *= 1.1f;
+            volume *= 0.8f;
         }
 
-        // Cap the values to prevent audio issues
         volume = Math.min(Math.max(volume, 0.1f), 2.0f);
         pitch = Math.min(Math.max(pitch, 0.5f), 2.0f);
 
@@ -440,57 +596,67 @@ public class WindManager {
         Season currentSeason = weatherForecast.getCurrentSeason(player.getWorld());
         WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(player.getWorld());
 
-        // Performance optimization: reduce particles based on nearby player count
-        int nearbyPlayers = (int) player.getWorld().getPlayers().stream()
-                .filter(p -> p.getLocation().distance(player.getLocation()) <= particleRange * 2)
-                .count();
-
-        // Reduce particle count if many players are nearby
-        double performanceMultiplier = Math.max(0.3, 1.0 / Math.max(1, nearbyPlayers - 1));
-
+        // PERFORMANCE OPTIMIZATION: Distance-based LOD
+        int baseParticleCount = calculateLODParticleCount(player, maxParticles);
+        
         // Seasonal particle count modifiers
         double seasonalMultiplier = 1.0;
         if (currentSeason != null) {
             switch (currentSeason) {
                 case WINTER:
-                    seasonalMultiplier = 1.3; // More particles in winter
+                    seasonalMultiplier = 1.3;
                     break;
                 case SPRING:
-                case FALL: // Note: RealisticSeasons uses FALL, not AUTUMN
-                    seasonalMultiplier = 1.1; // Slightly more in transitional seasons
+                case FALL:
+                    seasonalMultiplier = 1.1;
                     break;
             }
         }
 
-        // Make particles more subtle - reduce base count and make force influence less dramatic
-        int baseParticleCount = (int) (maxParticles * 0.4 * seasonalMultiplier);
-        int particleCount = (int) (baseParticleCount * force * performanceMultiplier);
-
-        // Ensure minimum particles for visibility but cap the maximum
+        int particleCount = (int) (baseParticleCount * 0.4 * seasonalMultiplier * force);
         particleCount = Math.max(5, Math.min(particleCount, maxParticles / 2));
 
-        // Determine particle type and colors based on biome and season
         BiomeParticleData particleData = getBiomeParticleData(biome, currentSeason, currentWeather);
 
         for (int i = 0; i < particleCount; i++) {
-            // Create particles around the player
             double offsetX = (random.nextDouble() - 0.5) * particleRange;
-            double offsetY = random.nextDouble() * 4 - 0.5; // -0.5 to 3.5 blocks high
+            double offsetY = random.nextDouble() * 4 - 0.5;
             double offsetZ = (random.nextDouble() - 0.5) * particleRange;
 
             Location particleLoc = loc.clone().add(offsetX, offsetY, offsetZ);
-
-            // More subtle particle velocity - reduced speed
             Vector velocity = windDirection.clone().multiply(force * 0.8);
 
-            // Spawn biome and season-specific particles
-            spawnBiomeParticle(player, particleLoc, velocity, force, particleData, true);
+            spawnBiomeParticleOptimized(player, particleLoc, velocity, force, particleData, true);
 
-            // Add some variety with secondary particle types (less frequent)
             if (random.nextInt(5) == 0) {
-                spawnBiomeParticle(player, particleLoc, velocity, force, particleData, false);
+                spawnBiomeParticleOptimized(player, particleLoc, velocity, force, particleData, false);
             }
         }
+    }
+
+    // PERFORMANCE OPTIMIZATION: Distance-based particle count calculation
+    private int calculateLODParticleCount(Player player, int baseCount) {
+        int nearbyPlayers = 0;
+        double avgDistance = 0;
+        
+        for (Player other : player.getWorld().getPlayers()) {
+            if (!other.equals(player)) {
+                double distance = player.getLocation().distance(other.getLocation());
+                if (distance <= particleRange * 3) {
+                    nearbyPlayers++;
+                    avgDistance += distance;
+                }
+            }
+        }
+        
+        if (nearbyPlayers == 0) return baseCount;
+        
+        avgDistance /= nearbyPlayers;
+        
+        double densityMultiplier = Math.max(0.2, 1.0 / (1 + nearbyPlayers * 0.3));
+        double distanceMultiplier = Math.max(0.3, 1.0 - (avgDistance / (particleRange * 2)));
+        
+        return (int) (baseCount * densityMultiplier * distanceMultiplier);
     }
 
     private BiomeParticleData getBiomeParticleData(Biome biome, Season season, WeatherForecast.WeatherType weather) {
@@ -498,18 +664,16 @@ public class WindManager {
         if (weather == WeatherForecast.WeatherType.SNOW || weather == WeatherForecast.WeatherType.BLIZZARD) {
             return new BiomeParticleData(
                     Particle.DUST_COLOR_TRANSITION,
-                    Color.fromRGB(255, 255, 255), // Pure white
-                    Color.fromRGB(220, 240, 255), // Slight blue tint
-                    Particle.SNOWFLAKE // Secondary particle
+                    Color.fromRGB(255, 255, 255),
+                    Color.fromRGB(220, 240, 255),
+                    Particle.SNOWFLAKE
             );
         }
 
         // Season-influenced biome particles
         switch (biome) {
-            // Desert biomes - sand particles
             case DESERT:
                 if (season == Season.WINTER) {
-                    // Cooler desert colors in winter
                     return new BiomeParticleData(
                             Particle.DUST_COLOR_TRANSITION,
                             Color.fromRGB(220, 180, 150),
@@ -519,12 +683,11 @@ public class WindManager {
                 }
                 return new BiomeParticleData(
                         Particle.DUST_COLOR_TRANSITION,
-                        Color.fromRGB(237, 201, 175), // Light sand color
-                        Color.fromRGB(194, 154, 108), // Darker sand color
-                        Particle.ASH // Secondary particle
+                        Color.fromRGB(237, 201, 175),
+                        Color.fromRGB(194, 154, 108),
+                        Particle.ASH
                 );
 
-            // Cold/Snow biomes - always snow particles
             case TAIGA:
             case SNOWY_PLAINS:
             case SNOWY_SLOPES:
@@ -536,12 +699,11 @@ public class WindManager {
             case ICE_SPIKES:
                 return new BiomeParticleData(
                         Particle.DUST_COLOR_TRANSITION,
-                        Color.fromRGB(255, 255, 255), // Pure white
-                        Color.fromRGB(220, 240, 255), // Slight blue tint
-                        Particle.SNOWFLAKE // Secondary particle
+                        Color.fromRGB(255, 255, 255),
+                        Color.fromRGB(220, 240, 255),
+                        Particle.SNOWFLAKE
                 );
 
-            // Forest biomes - gray particles
             case FOREST:
             case BIRCH_FOREST:
             case PLAINS:
@@ -554,22 +716,20 @@ public class WindManager {
             case WINDSWEPT_SAVANNA:
                 return new BiomeParticleData(
                         Particle.DUST_COLOR_TRANSITION,
-                        Color.fromRGB(169, 169, 169), // Light gray
-                        Color.fromRGB(105, 105, 105), // Dark gray
+                        Color.fromRGB(169, 169, 169),
+                        Color.fromRGB(105, 105, 105),
                         Particle.ASH
                 );
 
-            // Swamp biomes - gray particles
             case SWAMP:
             case MANGROVE_SWAMP:
                 return new BiomeParticleData(
                         Particle.DUST_COLOR_TRANSITION,
-                        Color.fromRGB(169, 169, 169), // Light gray
-                        Color.fromRGB(105, 105, 105), // Dark gray
+                        Color.fromRGB(169, 169, 169),
+                        Color.fromRGB(105, 105, 105),
                         Particle.ASH
                 );
 
-            // Ocean/Beach biomes - white particles
             case OCEAN:
             case DEEP_OCEAN:
             case WARM_OCEAN:
@@ -579,40 +739,34 @@ public class WindManager {
             case RIVER:
                 return new BiomeParticleData(
                         Particle.DUST_COLOR_TRANSITION,
-                        Color.fromRGB(255, 255, 255), // White
-                        Color.fromRGB(240, 248, 255), // Alice blue (very light blue-white)
-                        Particle.RAIN // Secondary particle
+                        Color.fromRGB(255, 255, 255),
+                        Color.fromRGB(240, 248, 255),
+                        Particle.RAIN
                 );
 
-            // Plains and other biomes - white particles
             default:
                 return new BiomeParticleData(
                         Particle.DUST_COLOR_TRANSITION,
-                        Color.fromRGB(255, 255, 255), // White
-                        Color.fromRGB(245, 245, 245), // White smoke
-                        Particle.ASH // Secondary particle
+                        Color.fromRGB(255, 255, 255),
+                        Color.fromRGB(245, 245, 245),
+                        Particle.ASH
                 );
         }
     }
 
-    private void spawnBiomeParticle(Player player, Location particleLoc, Vector velocity,
+    // OPTIMIZED: Use batch processing for particles
+    private void spawnBiomeParticleOptimized(Player player, Location particleLoc, Vector velocity,
                                     double force, BiomeParticleData particleData, boolean isPrimary) {
 
         Particle particleType = isPrimary ? particleData.primaryParticle : particleData.secondaryParticle;
 
         if (particleType == Particle.DUST_COLOR_TRANSITION) {
-            // Create dust color transition data
             Particle.DustTransition dustTransition = new Particle.DustTransition(
                     particleData.fromColor, particleData.toColor, (float) (0.8 + force * 0.4)
             );
-
-            player.spawnParticle(particleType, particleLoc, 0,
-                    velocity.getX(), velocity.getY() * 0.05, velocity.getZ(), 0, dustTransition);
+            particleBatch.addParticle(player, particleLoc, particleType, dustTransition, velocity);
         } else {
-            // Regular particle spawning
-            double forceMultiplier = isPrimary ? force * 0.5 : force * 0.3;
-            player.spawnParticle(particleType, particleLoc, 0,
-                    velocity.getX(), velocity.getY() * 0.05, velocity.getZ(), forceMultiplier);
+            particleBatch.addParticle(player, particleLoc, particleType, null, velocity);
         }
     }
 
@@ -636,6 +790,8 @@ public class WindManager {
             windTask.cancel();
         }
         worldWindData.clear();
+        locationExposureCache.clear();
+        exposureCacheTimestamps.clear();
     }
 
     public void reloadConfig() {
@@ -648,27 +804,26 @@ public class WindManager {
         private Vector windDirection;
         private double windIntensity;
         private double currentForce;
-        private double[] oscillation = {0, 0.015}; // [current, increment] - slower oscillation
-        private int gustPhase = 0; // Track gust phases
-        private int windDuration; // Remaining ticks
+        private double[] oscillation = {0, 0.015};
+        private int gustPhase = 0;
+        private int windDuration;
         private boolean windActive;
-        private long lastGustTime; // For 2-second delay between gusts
+        private long lastGustTime;
 
         public WindData() {
-            // Set wind to blow in one of the four cardinal directions
             Random rand = new Random();
             int direction = rand.nextInt(4);
             switch (direction) {
-                case 0: // North
+                case 0:
                     windDirection = new Vector(0, 0, -1);
                     break;
-                case 1: // East
+                case 1:
                     windDirection = new Vector(1, 0, 0);
                     break;
-                case 2: // South
+                case 2:
                     windDirection = new Vector(0, 0, 1);
                     break;
-                case 3: // West
+                case 3:
                     windDirection = new Vector(-1, 0, 0);
                     break;
             }
@@ -683,7 +838,7 @@ public class WindManager {
             windDuration = durationTicks;
             windIntensity = intensity;
             windActive = true;
-            oscillation[0] = 0; // Reset oscillation
+            oscillation[0] = 0;
             gustPhase = 0;
         }
 
@@ -697,7 +852,6 @@ public class WindManager {
                     return;
                 }
 
-                // Realistic wind gusts with multiple phases
                 updateWindGusts();
             }
         }
@@ -705,41 +859,35 @@ public class WindManager {
         private void updateWindGusts() {
             gustPhase++;
 
-            // Create realistic wind pattern with varying intensities
-            double gustCycle = gustPhase / 60.0; // 3-second cycles (60 ticks)
-            double gustStrength = Math.sin(gustCycle) * 0.3; // Sine wave for smooth gusts
+            double gustCycle = gustPhase / 60.0;
+            double gustStrength = Math.sin(gustCycle) * 0.3;
 
-            // Add some randomness for natural variation
-            if (gustPhase % 20 == 0) { // Every second, add small random variation
+            if (gustPhase % 20 == 0) {
                 gustStrength += (Math.random() - 0.5) * 0.1;
             }
 
-            // Major gust every 5-8 seconds
             if (gustPhase % (100 + (int)(Math.random() * 60)) == 0) {
                 gustStrength += 0.4 + (Math.random() * 0.3);
             }
 
-            // Calculate final force with base intensity and gust effects
-            currentForce = windIntensity * (0.7 + gustStrength); // Base 70% + gusts
-            currentForce = Math.max(0, Math.min(currentForce, windIntensity * 1.5)); // Cap at 150% of base
+            currentForce = windIntensity * (0.7 + gustStrength);
+            currentForce = Math.max(0, Math.min(currentForce, windIntensity * 1.5));
         }
 
         public void updateDirection(Random random, Season season) {
-            // Keep the wind direction fixed in cardinal directions
-            // Only change direction occasionally to a new cardinal direction
-            if (random.nextInt(1200) == 0) { // Very rarely change direction (once per minute)
+            if (random.nextInt(1200) == 0) {
                 int direction = random.nextInt(4);
                 switch (direction) {
-                    case 0: // North
+                    case 0:
                         windDirection = new Vector(0, 0, -1);
                         break;
-                    case 1: // East
+                    case 1:
                         windDirection = new Vector(1, 0, 0);
                         break;
-                    case 2: // South
+                    case 2:
                         windDirection = new Vector(0, 0, 1);
                         break;
-                    case 3: // West
+                    case 3:
                         windDirection = new Vector(-1, 0, 0);
                         break;
                 }
@@ -770,4 +918,4 @@ public class WindManager {
             lastGustTime = time;
         }
     }
-    }
+}

@@ -307,6 +307,8 @@ weather_progression:
     heavy_rain_to_thunderstorm: 2
     thunderstorm_to_clearing: 4
     clearing_to_clear: 2
+
+# ======= AURORA SYSTEM =======
 aurora:
   # Enable Aurora Borealis in Arctic zones
   enabled: true
@@ -351,6 +353,33 @@ heat_mirages:
     range: 30          # Range around player
     shimmer_speed: 200 # Speed of shimmer effect
 
+# ======= DYNAMIC SOUND SYSTEM =======
+dynamic_sounds:
+  # Enable dynamic ambient sounds
+  enabled: true
+
+  # Volume multiplier for sounds when indoors
+  indoor_volume_multiplier: 0.3
+
+  # How often to update sounds (in ticks, 20 = 1 second)
+  update_interval_ticks: 60
+
+  # Seasonal sound variations
+  seasonal_sounds:
+    enabled: true
+    # Volume multiplier for seasonal sounds
+    volume_multiplier: 0.8
+
+  # Time-of-day sounds
+  time_sounds:
+    enabled: true
+    # Night sounds (owls, wolves, etc.)
+    night_sounds: true
+    # Dawn chorus
+    dawn_sounds: true
+    # Dusk ambience
+    dusk_sounds: true
+
 # ======= PERFORMANCE SETTINGS =======
 performance:
   # Particle optimization
@@ -365,6 +394,12 @@ performance:
     climate_update_interval: 20      # Every second
     temperature_update_interval: 1200 # Every minute
 
+    # Use batch processing for particles (reduces lag)
+    use_batch_processing: true
+
+    # Distance-based Level of Detail (LOD)
+    use_distance_lod: true
+
   # Caching
   cache:
     # How long to cache player zone detection (in seconds)
@@ -372,6 +407,21 @@ performance:
 
     # Clear cache when player moves this many blocks
     cache_clear_distance: 50
+
+    # Cache exposure calculations for indoor detection
+    cache_exposure_calculations: true
+    exposure_cache_duration: 15
+
+  # Advanced optimizations
+  advanced:
+    # Use async tasks for particle processing
+    async_particles: true
+
+    # Reduce calculations for distant players
+    distance_optimization: true
+
+    # Maximum distance for full effects
+    max_effect_distance: 100
 
 # ======= INTEGRATION SETTINGS =======
 integration:
@@ -385,6 +435,54 @@ integration:
 
     # Enhanced seasonal effects when RealisticSeasons is present
     enhanced_seasonal_effects: true
+
+# ======= PLAYER PREFERENCES =======
+player_settings:
+  # Allow players to toggle particles individually
+  allow_particle_toggle: true
+
+  # Default particle setting for new players
+  default_particles_enabled: true
+
+  # Save player preferences (requires restart to take effect)
+  save_preferences: false
+
+# ======= ENHANCED FEATURES =======
+enhanced_features:
+  # Wind direction trails (shows air currents)
+  wind_trails:
+    enabled: true
+    stream_count_multiplier: 1.0
+    trail_length: 6
+
+  # Particle walls during blizzards
+  blizzard_walls:
+    enabled: true
+    wall_density: 0.6
+    wall_height: 6
+    wall_width: 15
+
+  # Seasonal wildlife effects
+  seasonal_wildlife:
+    enabled: true
+    # Bird migration in spring
+    spring_birds: true
+    # Insect sounds in summer
+    summer_insects: true
+    # Falling leaves in autumn
+    autumn_leaves: true
+    # Wildlife tracks in winter
+    winter_tracks: true
+
+  # Enhanced weather transitions
+  weather_transitions:
+    enabled: true
+    # Storm buildup effects
+    pre_storm_effects: true
+    # Sunbeams after storms
+    post_storm_effects: true
+    # Enhanced lightning during storms
+    enhanced_lightning: true
 
 # ======= DEBUG AND LOGGING =======
 debug:
@@ -400,6 +498,12 @@ debug:
   # Log drought events
   log_drought_events: true
 
+  # Log performance metrics
+  log_performance: false
+
+  # Log particle optimizations
+  log_particle_optimizations: false
+
 # ======= PERMISSIONS AND NOTIFICATIONS =======
 notifications:
   # Permission required to see weather notifications
@@ -413,3 +517,58 @@ notifications:
 
   # Send temperature extreme warnings
   temperature_warnings: true
+
+  # Send wind event notifications
+  wind_event_notifications: true
+
+  # Send weather progression notifications
+  weather_progression_notifications: true
+
+# ======= WORLD-SPECIFIC OVERRIDES =======
+# You can override settings for specific worlds
+world_overrides:
+  # Example: Different settings for a specific world
+  example_world:
+    # Override wind settings for this world
+    wind:
+      enabled: false
+
+    # Override temperature settings
+    temperature:
+      base_temperatures:
+        arctic: -25
+        temperate: 10
+        desert: 45
+
+    # Disable certain features
+    aurora:
+      enabled: false
+
+    dynamic_sounds:
+      enabled: false
+
+# ======= EXPERIMENTAL FEATURES =======
+experimental:
+  # WARNING: These features are experimental and may cause issues
+
+  # Advanced particle physics
+  particle_physics:
+    enabled: false
+    gravity_effect: true
+    wind_resistance: true
+
+  # Realistic air pressure effects
+  air_pressure:
+    enabled: false
+    altitude_effects: true
+    weather_pressure_changes: true
+
+  # Dynamic biome temperature
+  dynamic_biome_temp:
+    enabled: false
+    real_time_calculation: true
+
+  # Machine learning weather prediction
+  ml_weather:
+    enabled: false
+    learning_enabled: false
