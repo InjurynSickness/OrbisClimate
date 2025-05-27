@@ -23,6 +23,7 @@ public class OrbisClimate extends JavaPlugin implements Listener {
     private WeatherProgressionManager weatherProgressionManager;
     private DynamicSoundManager dynamicSoundManager;
     private PerformanceMonitor performanceMonitor;
+    private SnowPlacementListener snowPlacementListener; // NEW: Snow prevention listener
     private Random random;
 
     // Player particle preferences
@@ -89,8 +90,14 @@ public class OrbisClimate extends JavaPlugin implements Listener {
             dynamicSoundManager = new DynamicSoundManager(this);
             getLogger().info("✓ Dynamic sound manager initialized");
 
+            // NEW: Initialize snow placement prevention listener
+            getLogger().info("Initializing snow placement prevention...");
+            snowPlacementListener = new SnowPlacementListener(this);
+            getLogger().info("✓ Snow placement prevention initialized");
+
             // Register event listeners
             getServer().getPluginManager().registerEvents(this, this);
+            getServer().getPluginManager().registerEvents(snowPlacementListener, this); // NEW: Register snow listener
             getLogger().info("✓ Event listeners registered");
 
             // Register commands
@@ -289,6 +296,7 @@ public class OrbisClimate extends JavaPlugin implements Listener {
         getLogger().info("Dynamic Sound System: " + (dynamicSoundManager != null ? "ENABLED" : "DISABLED"));
         getLogger().info("Performance Monitoring: " + (performanceMonitor != null ? "ENABLED" : "DISABLED"));
         getLogger().info("Vanilla Weather: " + (getConfig().getBoolean("weather_control.disable_vanilla_weather", true) ? "DISABLED" : "ENABLED"));
+        getLogger().info("Snow Placement Prevention: " + (getConfig().getBoolean("weather_control.prevent_snow_placement", true) ? "ENABLED" : "DISABLED")); // NEW
     }
 
     @Override
@@ -447,6 +455,9 @@ public class OrbisClimate extends JavaPlugin implements Listener {
         }
         if (dynamicSoundManager != null) {
             dynamicSoundManager.reloadConfig();
+        }
+        if (snowPlacementListener != null) { // NEW: Reload snow listener config
+            snowPlacementListener.reloadConfig();
         }
 
         getLogger().info("Configuration reloaded for all managers!");

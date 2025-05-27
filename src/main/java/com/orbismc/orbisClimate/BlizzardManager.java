@@ -119,9 +119,20 @@ public class BlizzardManager {
             // Apply blizzard effects
             applyBlizzardEffects(entity);
 
-            // Extinguish nearby torches
+            // Enhanced player effects with messaging
             if (entity instanceof Player) {
-                extinguishNearbyTorches((Player) entity);
+                Player player = (Player) entity;
+                
+                // Extinguish nearby torches
+                extinguishNearbyTorches(player);
+                
+                // Send immersive snow messages based on weather type
+                WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(world);
+                if (currentWeather == WeatherForecast.WeatherType.SNOW) {
+                    sendSnowAccumulationMessages(player);
+                } else if (currentWeather == WeatherForecast.WeatherType.BLIZZARD) {
+                    sendBlizzardIntensityMessages(player);
+                }
             }
         }
     }
@@ -225,6 +236,47 @@ public class BlizzardManager {
                 material == Material.REDSTONE_WALL_TORCH ||
                 material == Material.SOUL_TORCH ||
                 material == Material.SOUL_WALL_TORCH;
+    }
+
+    // NEW: Snow accumulation messaging for regular snow weather
+    private void sendSnowAccumulationMessages(Player player) {
+        // Only send messages if enabled in config
+        if (!plugin.getConfig().getBoolean("notifications.snow_accumulation_messages", true)) {
+            return;
+        }
+        
+        // Send immersive snow messages occasionally
+        if (random.nextInt(800) == 0) { // Very rare messages
+            String[] snowMessages = {
+                "§f§lSnow begins to accumulate around your feet...",
+                "§7§lThe falling snow creates a thin white layer on the ground.",
+                "§f§lSnowflakes gather on nearby surfaces, painting the world white.",
+                "§7§lA blanket of snow slowly covers the landscape around you.",
+                "§f§lThe gentle snowfall creates a serene winter scene.",
+                "§7§lSnow drifts begin to form against nearby obstacles."
+            };
+            
+            String message = snowMessages[random.nextInt(snowMessages.length)];
+            player.sendMessage("§6[OrbisClimate] " + message);
+        }
+    }
+
+    // NEW: Intense blizzard messaging for blizzard weather
+    private void sendBlizzardIntensityMessages(Player player) {
+        // Send intense blizzard messages during blizzards
+        if (random.nextInt(1200) == 0) { // Even rarer for blizzards
+            String[] blizzardMessages = {
+                "§b§lThe fierce blizzard whips snow into towering drifts!",
+                "§f§lVisibility drops to near zero as the blizzard intensifies!",
+                "§7§lThe howling wind drives snow deep into every crevice!",
+                "§b§lSnow accumulates rapidly, transforming the landscape!",
+                "§f§lThe relentless blizzard creates a winter wonderland!",
+                "§7§lDrifts of snow pile high against any shelter!"
+            };
+            
+            String message = blizzardMessages[random.nextInt(blizzardMessages.length)];
+            player.sendMessage("§6[OrbisClimate] " + message);
+        }
     }
 
     private void processBlizzardParticles(World world) {

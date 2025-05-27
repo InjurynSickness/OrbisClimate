@@ -38,6 +38,7 @@ public class ClimateCommand implements CommandExecutor, TabCompleter {
         subCommands.put("perf", new PerformanceCommand(plugin)); // Alias
         subCommands.put("regenerate", new RegenerateCommand(plugin));
         subCommands.put("debug", new DebugCommand(plugin));
+        subCommands.put("snow", new SnowClearCommand(plugin)); // NEW: Snow clear command
     }
 
     @Override
@@ -86,6 +87,7 @@ public class ClimateCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(ChatColor.YELLOW + "/climate performance " + ChatColor.WHITE + "- Performance monitoring");
             sender.sendMessage(ChatColor.YELLOW + "/climate regenerate " + ChatColor.WHITE + "- Regenerate forecast");
             sender.sendMessage(ChatColor.YELLOW + "/climate debug " + ChatColor.WHITE + "- Debug information");
+            sender.sendMessage(ChatColor.YELLOW + "/climate snow " + ChatColor.WHITE + "- Clear snow blocks"); // NEW
         }
     }
 

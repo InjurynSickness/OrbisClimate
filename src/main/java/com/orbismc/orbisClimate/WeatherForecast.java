@@ -273,7 +273,7 @@ public class WeatherForecast {
         return WeatherType.SANDSTORM;
     }
 
-    // Simplified weather application - no fighting with vanilla system
+    // UPDATED: Modified weather application to prevent snow placement
     private void updateCurrentWeather(World world) {
         DailyForecast forecast = worldForecasts.get(world);
         if (forecast == null) return;
@@ -319,35 +319,47 @@ public class WeatherForecast {
         notifyPlayersOfWeatherChange(world, newWeather);
     }
 
+    // UPDATED: Modified to prevent snow placement while keeping visual effects
     private void applyWeatherToWorld(World world, WeatherType weather) {
         boolean shouldRain = weather.getRainIntensity() > 0;
         boolean shouldThunder = weather.getThunderIntensity() > 0;
 
-        // Handle snow vs rain
+        // IMPORTANT: For snow/blizzard, we DON'T want to use the storm system
+        // because that places actual snow blocks. Instead, we handle this purely
+        // through our particle effects in BlizzardManager
         if (weather == WeatherType.SNOW || weather == WeatherType.BLIZZARD) {
-            shouldRain = true; // Snow still uses the storm system
-        }
-
-        // Apply weather state directly - we control everything, no conflicts
-        world.setStorm(shouldRain);
-        world.setThundering(shouldThunder);
-        
-        if (shouldRain) {
-            world.setWeatherDuration(Integer.MAX_VALUE); // We control duration, not vanilla
-        } else {
-            world.setWeatherDuration(0);
-        }
-        
-        if (shouldThunder) {
-            world.setThunderDuration(Integer.MAX_VALUE); // We control duration, not vanilla
-        } else {
+            // Force clear weather in Minecraft but let our particle systems handle the visuals
+            world.setStorm(false);
+            world.setThundering(false);
+            world.setWeatherDuration(Integer.MAX_VALUE); // Prevent vanilla weather
             world.setThunderDuration(0);
+        } else {
+            // Handle rain and thunder normally
+            world.setStorm(shouldRain);
+            world.setThundering(shouldThunder);
+            
+            if (shouldRain) {
+                world.setWeatherDuration(Integer.MAX_VALUE); // We control duration, not vanilla
+            } else {
+                world.setWeatherDuration(0);
+            }
+            
+            if (shouldThunder) {
+                world.setThunderDuration(Integer.MAX_VALUE); // We control duration, not vanilla
+            } else {
+                world.setThunderDuration(0);
+            }
         }
 
         // Optional debug logging
         if (plugin.getConfig().getBoolean("debug.log_weather_applications", false)) {
-            plugin.getLogger().info("Set weather " + weather.getDisplayName() + 
-                " for " + world.getName() + " - Storm: " + shouldRain + " | Thunder: " + shouldThunder);
+            if (weather == WeatherType.SNOW || weather == WeatherType.BLIZZARD) {
+                plugin.getLogger().info("Set weather " + weather.getDisplayName() + 
+                    " for " + world.getName() + " - Using particle effects only (no snow blocks)");
+            } else {
+                plugin.getLogger().info("Set weather " + weather.getDisplayName() + 
+                    " for " + world.getName() + " - Storm: " + shouldRain + " | Thunder: " + shouldThunder);
+            }
         }
     }
 

@@ -109,7 +109,7 @@ blizzard:
   min_freezing_height: 65
   particle_range: 15        # Reduced from 20
   particle_y_range: 25      # Reduced from 30
-  particle_multiplier: 0.8  # Reduced from 1.0
+  particle_multiplier: 1.5  # Reduced from 1.0
   temperature_threshold: 0.15
 
 # ======= SANDSTORM SYSTEM (OPTIMIZED) =======
@@ -316,7 +316,7 @@ enhanced_features:
     trail_length: 4               # Reduced from 6
 
   blizzard_walls:
-    enabled: true
+    enabled: false
     wall_density: 0.4    # Reduced from 0.6
     wall_height: 4       # Reduced from 6
     wall_width: 12       # Reduced from 15
@@ -330,6 +330,7 @@ enhanced_features:
     post_storm_effects: true
     enhanced_lightning: true
 
+
 # ======= WEATHER CONTROL =======
 weather_control:
   # Completely disable vanilla Minecraft weather
@@ -337,6 +338,12 @@ weather_control:
 
   # Re-enable vanilla weather when plugin shuts down
   restore_vanilla_on_shutdown: true
+
+  prevent_snow_placement: true        # Prevent snow blocks
+
+  prevent_ice_formation: false       # Optionally prevent ice
+
+  allow_snow_melting: true           # Allow existing snow to melt
 
 # ======= DEBUG AND LOGGING =======
 debug:

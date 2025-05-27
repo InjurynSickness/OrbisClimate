@@ -23,7 +23,7 @@ commands:
       /climate debug - Show debug information (Admin)
     permission: orbisclimate.use
 
-  wind:
+  orbiscore:
     description: Alias for climate command (legacy support)
     usage: Same as /climate
     permission: orbisclimate.use
