@@ -1,6 +1,7 @@
 package com.orbismc.orbisClimate;
 
 import org.bukkit.Bukkit;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -39,6 +40,9 @@ public class OrbisClimate extends JavaPlugin implements Listener {
             // Initialize random
             random = new Random();
             getLogger().info("✓ Random initialized");
+
+            // DISABLE VANILLA WEATHER SYSTEM FIRST
+            disableVanillaWeather();
 
             // Initialize performance monitor early
             getLogger().info("Initializing performance monitor...");
@@ -89,11 +93,11 @@ public class OrbisClimate extends JavaPlugin implements Listener {
             getServer().getPluginManager().registerEvents(this, this);
             getLogger().info("✓ Event listeners registered");
 
-// Register commands
+            // Register commands
             getLogger().info("Registering commands...");
             ClimateCommand climateCommand = new ClimateCommand(this);
 
-// Register main command with aliases
+            // Register main command with aliases
             if (getCommand("climate") != null) {
                 getCommand("climate").setExecutor(climateCommand);
                 getCommand("climate").setTabCompleter(climateCommand);
@@ -102,7 +106,7 @@ public class OrbisClimate extends JavaPlugin implements Listener {
                 getLogger().severe("✗ Failed to register climate command - command not found in plugin.yml!");
             }
 
-// Also register aliases if they exist
+            // Also register aliases if they exist
             if (getCommand("wind") != null) {
                 getCommand("wind").setExecutor(climateCommand);
                 getCommand("wind").setTabCompleter(climateCommand);
@@ -119,7 +123,7 @@ public class OrbisClimate extends JavaPlugin implements Listener {
                 getLogger().info("Weather command alias not found in plugin.yml - skipping");
             }
 
-// Start main weather system task with performance optimization
+            // Start main weather system task with performance optimization
             getLogger().info("Starting weather system tasks...");
 
             // Main weather task - reduced frequency for better performance
@@ -191,6 +195,61 @@ public class OrbisClimate extends JavaPlugin implements Listener {
         }
     }
 
+    /**
+     * Completely disable vanilla Minecraft weather system
+     */
+    private void disableVanillaWeather() {
+        if (!getConfig().getBoolean("weather_control.disable_vanilla_weather", true)) {
+            getLogger().info("Vanilla weather disabling is disabled in config");
+            return;
+        }
+
+        getLogger().info("Disabling vanilla weather system...");
+        
+        // Disable weather for all worlds immediately
+        for (World world : Bukkit.getWorlds()) {
+            disableWeatherForWorld(world);
+        }
+        
+        // Create a task to prevent vanilla weather from ever starting
+        Bukkit.getScheduler().runTaskTimer(this, () -> {
+            for (World world : Bukkit.getWorlds()) {
+                // Prevent vanilla weather from starting
+                if (world.hasStorm() && !isOurWeatherActive(world)) {
+                    world.setStorm(false);
+                    world.setWeatherDuration(Integer.MAX_VALUE); // Prevent vanilla weather
+                }
+                if (world.isThundering() && !isOurWeatherActive(world)) {
+                    world.setThundering(false); 
+                    world.setThunderDuration(Integer.MAX_VALUE);
+                }
+            }
+        }, 0L, 400L); // Check every 20 seconds
+        
+        getLogger().info("✓ Vanilla weather system disabled");
+    }
+
+    /**
+     * Disable weather for a specific world
+     */
+    private void disableWeatherForWorld(World world) {
+        world.setStorm(false);
+        world.setThundering(false);
+        world.setWeatherDuration(Integer.MAX_VALUE); // Max value prevents vanilla weather
+        world.setThunderDuration(Integer.MAX_VALUE);
+    }
+
+    /**
+     * Check if our weather system is controlling this world's weather
+     */
+    private boolean isOurWeatherActive(World world) {
+        if (weatherForecast == null) return false;
+        
+        WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(world);
+        return currentWeather != null && 
+               (currentWeather.getRainIntensity() > 0 || currentWeather.getThunderIntensity() > 0);
+    }
+
     private void printPerformanceInfo() {
         getLogger().info("=== Performance Configuration ===");
 
@@ -229,6 +288,7 @@ public class OrbisClimate extends JavaPlugin implements Listener {
         getLogger().info("Hail Effects: " + (getConfig().getBoolean("weather_progression.hail.enabled", true) ? "ENABLED" : "DISABLED"));
         getLogger().info("Dynamic Sound System: " + (dynamicSoundManager != null ? "ENABLED" : "DISABLED"));
         getLogger().info("Performance Monitoring: " + (performanceMonitor != null ? "ENABLED" : "DISABLED"));
+        getLogger().info("Vanilla Weather: " + (getConfig().getBoolean("weather_control.disable_vanilla_weather", true) ? "DISABLED" : "ENABLED"));
     }
 
     @Override
@@ -236,6 +296,16 @@ public class OrbisClimate extends JavaPlugin implements Listener {
         getLogger().info("Disabling OrbisClimate...");
 
         try {
+            // Re-enable vanilla weather if configured to do so
+            if (getConfig().getBoolean("weather_control.restore_vanilla_on_shutdown", true)) {
+                getLogger().info("Restoring vanilla weather system...");
+                for (World world : Bukkit.getWorlds()) {
+                    world.setWeatherDuration(0); // Allow vanilla weather to resume
+                    world.setThunderDuration(0);
+                }
+                getLogger().info("✓ Vanilla weather system restored");
+            }
+
             // Cancel all tasks first to prevent new operations
             Bukkit.getScheduler().cancelTasks(this);
             getLogger().info("✓ All scheduled tasks cancelled");

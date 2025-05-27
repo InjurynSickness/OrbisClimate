@@ -6,7 +6,6 @@ import me.casperge.realisticseasons.season.Season;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
-import org.bukkit.scheduler.BukkitTask;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -76,12 +75,11 @@ public class WeatherForecast {
         public WeatherType getNightWeather() { return nightWeather; }
     }
 
-    // NEW: Weather state management per world
+    // Weather state management per world
     public static class WorldWeatherState {
         private WeatherType currentWeather;
         private WeatherType targetWeather;
         private long weatherStartTime;
-        private long weatherDuration;
         private boolean weatherLocked;
         private long lastWeatherUpdate;
 
@@ -89,7 +87,6 @@ public class WeatherForecast {
             this.currentWeather = WeatherType.CLEAR;
             this.targetWeather = WeatherType.CLEAR;
             this.weatherStartTime = System.currentTimeMillis();
-            this.weatherDuration = 0;
             this.weatherLocked = false;
             this.lastWeatherUpdate = 0;
         }
@@ -101,8 +98,6 @@ public class WeatherForecast {
         public void setTargetWeather(WeatherType weather) { this.targetWeather = weather; }
         public long getWeatherStartTime() { return weatherStartTime; }
         public void setWeatherStartTime(long time) { this.weatherStartTime = time; }
-        public long getWeatherDuration() { return weatherDuration; }
-        public void setWeatherDuration(long duration) { this.weatherDuration = duration; }
         public boolean isWeatherLocked() { return weatherLocked; }
         public void setWeatherLocked(boolean locked) { this.weatherLocked = locked; }
         public long getLastWeatherUpdate() { return lastWeatherUpdate; }
@@ -116,7 +111,6 @@ public class WeatherForecast {
     private final Map<World, WorldWeatherState> worldWeatherStates = new HashMap<>();
     private SeasonsAPI seasonsAPI;
     private boolean realisticSeasonsEnabled = false;
-    private BukkitTask weatherMaintenanceTask;
 
     public WeatherForecast(OrbisClimate plugin) {
         this.plugin = plugin;
@@ -136,55 +130,6 @@ public class WeatherForecast {
             plugin.getLogger().info("RealisticSeasons not found, using vanilla time system");
             realisticSeasonsEnabled = false;
         }
-
-        // NEW: Start weather maintenance task
-        startWeatherMaintenanceTask();
-    }
-
-    // NEW: Weather maintenance task to prevent weather from stopping unexpectedly
-    private void startWeatherMaintenanceTask() {
-        weatherMaintenanceTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            for (World world : Bukkit.getWorlds()) {
-                maintainWorldWeather(world);
-            }
-        }, 0L, 100L); // Every 5 seconds
-    }
-
-    private void maintainWorldWeather(World world) {
-        WorldWeatherState state = worldWeatherStates.get(world);
-        if (state == null) {
-            state = new WorldWeatherState();
-            worldWeatherStates.put(world, state);
-        }
-
-        long currentTime = System.currentTimeMillis();
-        WeatherType currentWeather = state.getCurrentWeather();
-
-        // Check if weather should still be active
-        if (currentWeather != WeatherType.CLEAR && currentWeather != WeatherType.SANDSTORM) {
-            boolean shouldHaveRain = currentWeather.getRainIntensity() > 0;
-            boolean shouldHaveThunder = currentWeather.getThunderIntensity() > 0;
-
-            // Force weather to stay if it's not matching what it should be
-            if (world.hasStorm() != shouldHaveRain || world.isThundering() != shouldHaveThunder) {
-                plugin.getLogger().info("Correcting weather for world " + world.getName() + 
-                    " - Expected: " + currentWeather.getDisplayName() + 
-                    " | Storm: " + shouldHaveRain + " | Thunder: " + shouldHaveThunder);
-                
-                applyWeatherToWorld(world, currentWeather, true);
-            }
-
-            // Extend weather duration if needed
-            if (world.getWeatherDuration() < 200) { // Less than 10 seconds remaining
-                int newDuration = calculateWeatherDuration(currentWeather);
-                world.setWeatherDuration(newDuration);
-                if (shouldHaveThunder && world.getThunderDuration() < 200) {
-                    world.setThunderDuration(newDuration);
-                }
-            }
-        }
-
-        state.setLastWeatherUpdate(currentTime);
     }
 
     public void checkAndUpdateForecast(World world) {
@@ -328,15 +273,25 @@ public class WeatherForecast {
         return WeatherType.SANDSTORM;
     }
 
-    // NEW: Improved weather application system
+    // Simplified weather application - no fighting with vanilla system
     private void updateCurrentWeather(World world) {
         DailyForecast forecast = worldForecasts.get(world);
         if (forecast == null) return;
 
+        // Check if weather is manually locked by admin
+        WorldWeatherState state = worldWeatherStates.get(world);
+        if (state != null && state.isWeatherLocked()) {
+            // Don't change weather if it's been manually set
+            return;
+        }
+
         int currentHour = getCurrentHour(world);
         WeatherType targetWeather = forecast.getCurrentWeather(currentHour);
 
-        WorldWeatherState state = worldWeatherStates.computeIfAbsent(world, k -> new WorldWeatherState());
+        if (state == null) {
+            state = new WorldWeatherState();
+            worldWeatherStates.put(world, state);
+        }
 
         // Check if weather should change
         if (state.getTargetWeather() != targetWeather) {
@@ -344,29 +299,27 @@ public class WeatherForecast {
         }
 
         // Ensure current weather is properly applied
-        applyWeatherToWorld(world, state.getCurrentWeather(), false);
+        applyWeatherToWorld(world, state.getCurrentWeather());
     }
 
     private void changeWeather(World world, WorldWeatherState state, WeatherType newWeather) {
-        plugin.getLogger().info("Weather changing in " + world.getName() + " from " + 
-            state.getCurrentWeather().getDisplayName() + " to " + newWeather.getDisplayName());
+        if (plugin.getConfig().getBoolean("debug.log_weather_transitions", false)) {
+            plugin.getLogger().info("Weather changing in " + world.getName() + " from " + 
+                state.getCurrentWeather().getDisplayName() + " to " + newWeather.getDisplayName());
+        }
 
         state.setTargetWeather(newWeather);
         state.setCurrentWeather(newWeather);
         state.setWeatherStartTime(System.currentTimeMillis());
-        
-        // Calculate how long this weather should last
-        long duration = calculateWeatherDurationMillis(newWeather);
-        state.setWeatherDuration(duration);
 
         // Apply the weather immediately
-        applyWeatherToWorld(world, newWeather, true);
+        applyWeatherToWorld(world, newWeather);
 
         // Notify players
         notifyPlayersOfWeatherChange(world, newWeather);
     }
 
-    private void applyWeatherToWorld(World world, WeatherType weather, boolean force) {
+    private void applyWeatherToWorld(World world, WeatherType weather) {
         boolean shouldRain = weather.getRainIntensity() > 0;
         boolean shouldThunder = weather.getThunderIntensity() > 0;
 
@@ -375,66 +328,27 @@ public class WeatherForecast {
             shouldRain = true; // Snow still uses the storm system
         }
 
-        // Only update if needed or forced
-        if (force || world.hasStorm() != shouldRain || world.isThundering() != shouldThunder) {
-            world.setStorm(shouldRain);
-            world.setThundering(shouldThunder);
-
-            // Set appropriate duration
-            int duration = calculateWeatherDuration(weather);
-            
-            if (shouldRain) {
-                world.setWeatherDuration(duration);
-            }
-            
-            if (shouldThunder) {
-                world.setThunderDuration(duration);
-            }
-
-            plugin.getLogger().info("Applied weather " + weather.getDisplayName() + 
-                " to " + world.getName() + " - Storm: " + shouldRain + 
-                " | Thunder: " + shouldThunder + " | Duration: " + (duration / 20) + "s");
-        }
-    }
-
-    private int calculateWeatherDuration(WeatherType weather) {
-        // Base duration in ticks (20 ticks = 1 second)
-        int baseDuration;
+        // Apply weather state directly - we control everything, no conflicts
+        world.setStorm(shouldRain);
+        world.setThundering(shouldThunder);
         
-        switch (weather) {
-            case CLEAR:
-                baseDuration = 12000; // 10 minutes
-                break;
-            case LIGHT_RAIN:
-                baseDuration = 6000;  // 5 minutes
-                break;
-            case HEAVY_RAIN:
-                baseDuration = 9600;  // 8 minutes
-                break;
-            case THUNDERSTORM:
-                baseDuration = 7200;  // 6 minutes
-                break;
-            case SNOW:
-                baseDuration = 8400;  // 7 minutes
-                break;
-            case BLIZZARD:
-                baseDuration = 4800;  // 4 minutes
-                break;
-            case SANDSTORM:
-                baseDuration = 3600;  // 3 minutes
-                break;
-            default:
-                baseDuration = 6000;  // 5 minutes default
-                break;
+        if (shouldRain) {
+            world.setWeatherDuration(Integer.MAX_VALUE); // We control duration, not vanilla
+        } else {
+            world.setWeatherDuration(0);
+        }
+        
+        if (shouldThunder) {
+            world.setThunderDuration(Integer.MAX_VALUE); // We control duration, not vanilla
+        } else {
+            world.setThunderDuration(0);
         }
 
-        // Add some randomness (±25%)
-        int variation = (int) (baseDuration * 0.25);
-        return baseDuration + random.nextInt(variation * 2) - variation;
-    }
-
-    private long calculateWeatherDurationMillis(WeatherType weather) {
-        return calculateWeatherDuration(weather) * 50L; // Convert ticks to milliseconds
+        // Optional debug logging
+        if (plugin.getConfig().getBoolean("debug.log_weather_applications", false)) {
+            plugin.getLogger().info("Set weather " + weather.getDisplayName() + 
+                " for " + world.getName() + " - Storm: " + shouldRain + " | Thunder: " + shouldThunder);
+        }
     }
 
     private void notifyPlayersOfWeatherChange(World world, WeatherType newWeather) {
@@ -505,20 +419,25 @@ public class WeatherForecast {
         updateCurrentWeather(world);
     }
 
-    // NEW: Manual weather override (for admins)
+    // Manual weather override (for admins)
     public void setWeather(World world, WeatherType weather, int durationMinutes) {
         WorldWeatherState state = worldWeatherStates.computeIfAbsent(world, k -> new WorldWeatherState());
         
         state.setCurrentWeather(weather);
         state.setTargetWeather(weather);
         state.setWeatherLocked(true);
-        state.setWeatherDuration(durationMinutes * 60 * 1000L); // Convert to milliseconds
         state.setWeatherStartTime(System.currentTimeMillis());
         
-        applyWeatherToWorld(world, weather, true);
+        applyWeatherToWorld(world, weather);
         
         plugin.getLogger().info("Manual weather override: " + world.getName() + 
             " set to " + weather.getDisplayName() + " for " + durationMinutes + " minutes");
+
+        // Schedule unlock after duration
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            state.setWeatherLocked(false);
+            plugin.getLogger().info("Weather lock expired for " + world.getName());
+        }, durationMinutes * 60L * 20L); // Convert minutes to ticks
     }
 
     public void clearWeatherLock(World world) {
@@ -547,13 +466,18 @@ public class WeatherForecast {
         return null;
     }
 
-    // NEW: Shutdown method
+    // Shutdown method - re-enable vanilla weather
     public void shutdown() {
-        if (weatherMaintenanceTask != null) {
-            weatherMaintenanceTask.cancel();
-        }
         worldWeatherStates.clear();
         worldForecasts.clear();
         lastCheckedDate.clear();
+        
+        // Re-enable vanilla weather when plugin shuts down
+        if (plugin.getConfig().getBoolean("weather_control.restore_vanilla_on_shutdown", true)) {
+            for (World world : Bukkit.getWorlds()) {
+                world.setWeatherDuration(0); // Allow vanilla weather to resume
+                world.setThunderDuration(0);
+            }
+        }
     }
 }

@@ -87,9 +87,9 @@ monitoring:
 # ======= WIND SYSTEM (OPTIMIZED) =======
 wind:
   enabled: true
-  interior_height_distance: 30  # Reduced from 50 for better performance
-  min_height: 50
-  max_particles: 50  # Reduced from 100
+  interior_height_distance: 50  # Reduced from 50 for better performance
+  min_height: 55
+  max_particles: 100
   particle_range: 8.0  # Reduced from 10.0
 
   # Optimized wind chances
@@ -97,7 +97,7 @@ wind:
     clear_weather: 8.0      # Slightly reduced
     rain: 20.0              # Reduced from 25.0
     snow: 12.0              # Reduced from 15.0
-    thunderstorm: 100.0     # Keep high for storms
+    thunderstorm: 75.0     # Keep high for storms
 
   duration:
     min_seconds: 25         # Slightly reduced
@@ -106,7 +106,7 @@ wind:
 # ======= BLIZZARD SYSTEM (OPTIMIZED) =======
 blizzard:
   damage: 1.0
-  min_freezing_height: 60
+  min_freezing_height: 65
   particle_range: 15        # Reduced from 20
   particle_y_range: 25      # Reduced from 30
   particle_multiplier: 0.8  # Reduced from 1.0
@@ -133,8 +133,15 @@ climate_zones:
       biomes:
         - SNOWY_PLAINS
         - SNOWY_TAIGA
+        - SNOWY_SLOPES
+        - SNOWY_BEACH
+        - FROZEN_RIVER
         - FROZEN_OCEAN
+        - DEEP_FROZEN_OCEAN
         - ICE_SPIKES
+        - GROVE
+        - JAGGED_PEAKS
+        - FROZEN_PEAKS
         - TAIGA
 
     temperate:
@@ -144,9 +151,17 @@ climate_zones:
       biomes:
         - PLAINS
         - FOREST
-        - OCEAN
+        - BIRCH_FOREST
+        - DARK_FOREST
+        - FLOWER_FOREST
         - RIVER
         - BEACH
+        - OCEAN
+        - DEEP_OCEAN
+        - LUKEWARM_OCEAN
+        - WARM_OCEAN
+        - WINDSWEPT_HILLS
+        - WINDSWEPT_FOREST
 
     desert:
       enabled: true
@@ -155,7 +170,8 @@ climate_zones:
       biomes:
         - DESERT
         - BADLANDS
-        - SAVANNA
+        - ERODED_BADLANDS
+        - WOODED_BADLANDS
 
 # ======= DROUGHT SYSTEM (SIMPLIFIED) =======
 drought:
@@ -195,7 +211,7 @@ temperature:
           - SLOWNESS:0:80  # Reduced duration
         severe_cold:
           - SLOWNESS:1:80
-          - WITHER:0:40
+         # - WITHER:0:40
 
     heat:
       mild_heat: 30
@@ -276,8 +292,8 @@ dynamic_sounds:
   time_sounds:
     enabled: true
     night_sounds: true
-    dawn_sounds: false    # Disabled for performance
-    dusk_sounds: false    # Disabled for performance
+    dawn_sounds: true
+    dusk_sounds: true
 
 # ======= INTEGRATION SETTINGS =======
 integration:
@@ -290,7 +306,7 @@ integration:
 player_settings:
   allow_particle_toggle: true
   default_particles_enabled: true
-  save_preferences: false
+  save_preferences: true
 
 # ======= ENHANCED FEATURES (SELECTIVE) =======
 enhanced_features:
@@ -311,10 +327,18 @@ enhanced_features:
   weather_transitions:
     enabled: true
     pre_storm_effects: true
-    post_storm_effects: false     # Disabled for performance
+    post_storm_effects: true
     enhanced_lightning: true
 
-# ======= DEBUG AND LOGGING (MINIMAL) =======
+# ======= WEATHER CONTROL =======
+weather_control:
+  # Completely disable vanilla Minecraft weather
+  disable_vanilla_weather: true
+
+  # Re-enable vanilla weather when plugin shuts down
+  restore_vanilla_on_shutdown: true
+
+# ======= DEBUG AND LOGGING =======
 debug:
   enabled: false
   log_zone_changes: false
@@ -322,6 +346,10 @@ debug:
   log_drought_events: true
   log_performance: false
   log_particle_optimizations: false
+
+  # Weather system debug options (set to true only for troubleshooting)
+  log_weather_transitions: false     # Weather changes between periods
+  log_weather_applications: false   # When weather is applied to worlds
 
 # ======= NOTIFICATIONS (OPTIMIZED) =======
 notifications:
