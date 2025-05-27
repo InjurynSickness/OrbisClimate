@@ -15,6 +15,7 @@ import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class SandstormManager {
 
@@ -24,6 +25,7 @@ public class SandstormManager {
     private final Random random;
 
     // Configuration
+    private boolean sandstormsEnabled;
     private int minSandstormHeight;
     private int particleRange;
     private int particleYRange;
@@ -31,10 +33,17 @@ public class SandstormManager {
     private int blindnessDuration;
     private int slownessDuration;
     private int slownessAmplifier;
+    private boolean enableLocalizedSandstorms;
+    private int maxPlayersPerSandstorm;
 
-    // Active sandstorms per world
+    // Active sandstorms per player (localized system)
+    private final Map<Player, PlayerSandstormData> activePlayerSandstorms = new ConcurrentHashMap<>();
     private final Set<World> activeSandstorms = new HashSet<>();
     private final Map<World, BukkitTask> sandstormTasks = new HashMap<>();
+
+    // Performance tracking
+    private final Map<Player, Long> lastParticleTime = new ConcurrentHashMap<>();
+    private static final long PARTICLE_COOLDOWN_MS = 40; // 40ms between particle updates per player
 
     public SandstormManager(OrbisClimate plugin, WeatherForecast weatherForecast, WindManager windManager) {
         this.plugin = plugin;
@@ -46,32 +55,229 @@ public class SandstormManager {
     }
 
     private void loadConfig() {
+        sandstormsEnabled = plugin.getConfig().getBoolean("sandstorm.enabled", true);
         minSandstormHeight = plugin.getConfig().getInt("sandstorm.min_height", 62);
-        particleRange = plugin.getConfig().getInt("sandstorm.particle_range", 15);
-        particleYRange = plugin.getConfig().getInt("sandstorm.particle_y_range", 25);
-        particleMultiplier = plugin.getConfig().getDouble("sandstorm.particle_multiplier", 1.5);
+        particleRange = plugin.getConfig().getInt("sandstorm.particle_range", 12);
+        particleYRange = plugin.getConfig().getInt("sandstorm.particle_y_range", 20);
+        particleMultiplier = plugin.getConfig().getDouble("sandstorm.particle_multiplier", 1.2);
         blindnessDuration = plugin.getConfig().getInt("sandstorm.blindness_duration", 100);
         slownessDuration = plugin.getConfig().getInt("sandstorm.slowness_duration", 100);
         slownessAmplifier = plugin.getConfig().getInt("sandstorm.slowness_amplifier", 1);
+        enableLocalizedSandstorms = plugin.getConfig().getBoolean("sandstorm.localized_sandstorms", true);
+        maxPlayersPerSandstorm = plugin.getConfig().getInt("sandstorm.max_players_per_sandstorm", 8);
     }
 
     public void startSandstorm(World world) {
-        if (activeSandstorms.contains(world)) return;
+        if (!sandstormsEnabled || activeSandstorms.contains(world)) return;
 
         activeSandstorms.add(world);
 
-        // Start main sandstorm effects task
+        if (enableLocalizedSandstorms) {
+            startLocalizedSandstorms(world);
+        } else {
+            startWorldSandstorm(world);
+        }
+    }
+
+    private void startLocalizedSandstorms(World world) {
+        // Start individual sandstorms for players in desert areas
+        for (Player player : world.getPlayers()) {
+            if (shouldPlayerHaveSandstorm(player)) {
+                startPlayerSandstorm(player);
+            }
+        }
+
+        // Task to manage player sandstorms
         BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            processSandstormEffects(world);
-        }, 0L, 10L); // Run every 10 ticks (0.5 seconds)
+            // Check for new players entering desert areas
+            for (Player player : world.getPlayers()) {
+                if (shouldPlayerHaveSandstorm(player) && !activePlayerSandstorms.containsKey(player)) {
+                    if (activePlayerSandstorms.size() < maxPlayersPerSandstorm) {
+                        startPlayerSandstorm(player);
+                    }
+                } else if (!shouldPlayerHaveSandstorm(player) && activePlayerSandstorms.containsKey(player)) {
+                    stopPlayerSandstorm(player);
+                }
+            }
+
+            // Process existing player sandstorms
+            Iterator<Map.Entry<Player, PlayerSandstormData>> iterator = activePlayerSandstorms.entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<Player, PlayerSandstormData> entry = iterator.next();
+                Player player = entry.getKey();
+                PlayerSandstormData data = entry.getValue();
+
+                if (!player.isOnline() || !shouldPlayerHaveSandstorm(player)) {
+                    iterator.remove();
+                    continue;
+                }
+
+                processPlayerSandstormEffects(player, data);
+            }
+        }, 0L, 10L); // Every 0.5 seconds
 
         sandstormTasks.put(world, task);
 
-        // Start async particle task for performance
+        // Separate async task for particles
+        Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, () -> {
+            if (!activeSandstorms.contains(world)) return;
+            
+            // Process particles for active player sandstorms
+            for (Map.Entry<Player, PlayerSandstormData> entry : activePlayerSandstorms.entrySet()) {
+                Player player = entry.getKey();
+                if (!player.getWorld().equals(world)) continue;
+                
+                // Skip if player has particles disabled or performance issues
+                if (!plugin.isPlayerParticlesEnabled(player)) continue;
+                
+                // Rate limit particles per player
+                long currentTime = System.currentTimeMillis();
+                Long lastTime = lastParticleTime.get(player);
+                if (lastTime != null && (currentTime - lastTime) < PARTICLE_COOLDOWN_MS) {
+                    continue;
+                }
+                lastParticleTime.put(player, currentTime);
+                
+                generateLocalizedSandstormParticles(player);
+            }
+        }, 0L, 1L); // Every tick for particles, but rate limited per player
+    }
+
+    private void startWorldSandstorm(World world) {
+        // Original world-wide sandstorm system
+        BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            processSandstormEffects(world);
+        }, 0L, 10L);
+
+        sandstormTasks.put(world, task);
+
+        // Async particle task
         Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, () -> {
             if (!activeSandstorms.contains(world)) return;
             processSandstormParticles(world);
-        }, 0L, 2L); // Run every 2 ticks for intensive particles
+        }, 0L, 2L);
+    }
+
+    private boolean shouldPlayerHaveSandstorm(Player player) {
+        Location loc = player.getLocation();
+
+        // Height requirement check
+        if (loc.getBlockY() < minSandstormHeight) return false;
+
+        // Biome check - only desert biomes can have sandstorms
+        if (!isDesertBiome(loc.getBlock().getBiome())) return false;
+
+        // Use wind manager's indoor detection for consistency
+        if (windManager.isPlayerIndoors(player)) return false;
+
+        return true;
+    }
+
+    private void startPlayerSandstorm(Player player) {
+        PlayerSandstormData data = new PlayerSandstormData();
+        activePlayerSandstorms.put(player, data);
+        
+        // Notify player
+        if (random.nextInt(3) == 0) {
+            player.sendMessage("§6§lA sandstorm begins to swirl around you...");
+        }
+    }
+
+    private void stopPlayerSandstorm(Player player) {
+        activePlayerSandstorms.remove(player);
+        lastParticleTime.remove(player);
+    }
+
+    private void processPlayerSandstormEffects(Player player, PlayerSandstormData data) {
+        // Apply sandstorm effects to the player
+        applySandstormEffects(player);
+        
+        // Send messages less frequently
+        if (random.nextInt(1200) == 0) {
+            sendSandstormMessages(player);
+        }
+    }
+
+    private void generateLocalizedSandstormParticles(Player player) {
+        Location playerLoc = player.getLocation();
+
+        // Check if player is in desert biome
+        if (!isDesertBiome(playerLoc.getBlock().getBiome())) return;
+
+        // Check height requirement
+        if (playerLoc.getBlockY() < minSandstormHeight) return;
+
+        // Performance optimization
+        double performanceMultiplier = 1.0;
+        if (plugin.getPerformanceMonitor() != null) {
+            performanceMultiplier = plugin.getPerformanceMonitor().getPerformanceMultiplier();
+            if (plugin.getPerformanceMonitor().shouldSkipEffects(player)) {
+                return;
+            }
+        }
+
+        int actualRange = (int) (particleRange * particleMultiplier * performanceMultiplier);
+
+        // Create intensive particle effects (like DeadlyDisasters style but optimized)
+        int particleCount = (int) (25 * performanceMultiplier); // Reduced from 50
+        
+        for (int i = 0; i < particleCount; i++) {
+            // Random location around player
+            double offsetX = (random.nextDouble() - 0.5) * actualRange;
+            double offsetY = random.nextDouble() * particleYRange;
+            double offsetZ = (random.nextDouble() - 0.5) * actualRange;
+
+            Location particleLoc = playerLoc.clone().add(offsetX, offsetY, offsetZ);
+
+            // Create sand-colored dust particles
+            Particle.DustOptions dustOptions = new Particle.DustOptions(
+                    org.bukkit.Color.fromRGB(237, 201, 175), // Light sand color
+                    1.0f
+            );
+
+            // Spawn dust particles with movement
+            player.spawnParticle(Particle.DUST, particleLoc, 1,
+                    0.5, 0.3, 0.5, 0.1, dustOptions);
+
+            // Add some regular dust particles for density
+            if (random.nextInt(4) == 0) { // Reduced frequency
+                player.spawnParticle(Particle.ASH, particleLoc, 1,
+                        0.3, 0.2, 0.3, 0.05);
+            }
+        }
+
+        // Create swirling sand effect around player (reduced complexity)
+        if (random.nextInt(2) == 0) { // Only 50% of the time
+            for (int i = 0; i < 10; i++) { // Reduced from 20
+                double angle = (System.currentTimeMillis() / 50.0 + i * 36) % 360; // Increased angle step
+                double radians = Math.toRadians(angle);
+                double radius = 3.0 + Math.sin(System.currentTimeMillis() / 1000.0) * 1.0;
+
+                double x = playerLoc.getX() + Math.cos(radians) * radius;
+                double y = playerLoc.getY() + 1.0 + Math.sin(System.currentTimeMillis() / 800.0 + i) * 0.5;
+                double z = playerLoc.getZ() + Math.sin(radians) * radius;
+
+                Location swirl = new Location(player.getWorld(), x, y, z);
+
+                Particle.DustOptions swirlingDust = new Particle.DustOptions(
+                        org.bukkit.Color.fromRGB(194, 154, 108), // Darker sand color
+                        0.8f
+                );
+
+                player.spawnParticle(Particle.DUST, swirl, 1,
+                        0.1, 0.1, 0.1, 0.02, swirlingDust);
+            }
+        }
+
+        // Play sandstorm sounds occasionally
+        if (random.nextInt(120) == 0) { // Reduced frequency
+            player.playSound(playerLoc, Sound.WEATHER_RAIN, 0.6f, 0.3f);
+        }
+
+        // Add wind whoosh sounds
+        if (random.nextInt(180) == 0) { // Reduced frequency
+            player.playSound(playerLoc, Sound.ITEM_ELYTRA_FLYING, 0.4f, 0.5f);
+        }
     }
 
     public void stopSandstorm(World world) {
@@ -83,8 +289,20 @@ public class SandstormManager {
         if (task != null) {
             task.cancel();
         }
+
+        // Clear all player sandstorms in this world
+        Iterator<Map.Entry<Player, PlayerSandstormData>> iterator = activePlayerSandstorms.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<Player, PlayerSandstormData> entry = iterator.next();
+            if (entry.getKey().getWorld().equals(world)) {
+                iterator.remove();
+            }
+        }
+        
+        lastParticleTime.clear();
     }
 
+    // Original methods for compatibility
     private void processSandstormEffects(World world) {
         for (LivingEntity entity : world.getLivingEntities()) {
             Location loc = entity.getLocation();
@@ -100,6 +318,80 @@ public class SandstormManager {
 
             // Apply sandstorm effects
             applySandstormEffects(entity);
+        }
+    }
+
+    private void processSandstormParticles(World world) {
+        for (Player player : world.getPlayers()) {
+            if (!player.getWorld().equals(world)) continue;
+
+            // Skip if player has particles disabled
+            if (!plugin.isPlayerParticlesEnabled(player)) continue;
+
+            // Rate limiting
+            long currentTime = System.currentTimeMillis();
+            Long lastTime = lastParticleTime.get(player);
+            if (lastTime != null && (currentTime - lastTime) < PARTICLE_COOLDOWN_MS) {
+                continue;
+            }
+            lastParticleTime.put(player, currentTime);
+
+            generateSandstormParticles(player);
+        }
+    }
+
+    private void generateSandstormParticles(Player player) {
+        Location playerLoc = player.getLocation();
+
+        // Check if player is in desert biome
+        if (!isDesertBiome(playerLoc.getBlock().getBiome())) return;
+
+        // Check height requirement
+        if (playerLoc.getBlockY() < minSandstormHeight) return;
+
+        // Performance optimization - adjust particle count based on nearby players
+        int nearbyPlayers = (int) player.getWorld().getPlayers().stream()
+                .filter(p -> p.getLocation().distance(player.getLocation()) <= particleRange * 2)
+                .count();
+        
+        double performanceMultiplier = Math.max(0.3, 1.0 / Math.max(1, nearbyPlayers - 1));
+        if (plugin.getPerformanceMonitor() != null) {
+            performanceMultiplier *= plugin.getPerformanceMonitor().getPerformanceMultiplier();
+        }
+        
+        int actualRange = (int) (particleRange * particleMultiplier * performanceMultiplier);
+
+        // Create intensive particle effects but with performance consideration
+        int particleCount = (int) (30 * performanceMultiplier); // Reduced base count
+        
+        for (int i = 0; i < particleCount; i++) {
+            // Random location around player
+            double offsetX = (random.nextDouble() - 0.5) * actualRange;
+            double offsetY = random.nextDouble() * particleYRange;
+            double offsetZ = (random.nextDouble() - 0.5) * actualRange;
+
+            Location particleLoc = playerLoc.clone().add(offsetX, offsetY, offsetZ);
+
+            // Create sand-colored dust particles
+            Particle.DustOptions dustOptions = new Particle.DustOptions(
+                    org.bukkit.Color.fromRGB(237, 201, 175), // Light sand color
+                    1.0f
+            );
+
+            // Spawn dust particles with movement
+            player.spawnParticle(Particle.DUST, particleLoc, 1,
+                    0.5, 0.3, 0.5, 0.1, dustOptions);
+
+            // Add some regular dust particles for density
+            if (random.nextInt(4) == 0) {
+                player.spawnParticle(Particle.ASH, particleLoc, 1,
+                        0.3, 0.2, 0.3, 0.05);
+            }
+        }
+
+        // Play sandstorm sounds occasionally
+        if (random.nextInt(120) == 0) {
+            player.playSound(playerLoc, Sound.WEATHER_RAIN, 0.6f, 0.3f);
         }
     }
 
@@ -131,228 +423,41 @@ public class SandstormManager {
             Player player = (Player) entity;
 
             // Send sandstorm messages occasionally
-            if (random.nextInt(600) == 0) { // 1 in 600 chance per tick
-                player.sendMessage("§6§lThe sandstorm whips around you, blinding your vision...");
+            if (random.nextInt(1200) == 0) { // Reduced frequency
+                sendSandstormMessages(player);
             }
         }
     }
 
-    private void processSandstormParticles(World world) {
-        for (Player player : world.getPlayers()) {
-            if (!player.getWorld().equals(world)) continue;
-
-            // Skip if player has particles disabled
-            if (!plugin.isPlayerParticlesEnabled(player)) {
-                continue;
-            }
-
-            // Generate intensive sand particles around player
-            generateSandstormParticles(player);
+    private void sendSandstormMessages(Player player) {
+        if (!plugin.getConfig().getBoolean("notifications.sandstorm_messages", true)) {
+            return;
         }
-    }
-
-    private void generateSandstormParticles(Player player) {
-        Location playerLoc = player.getLocation();
-
-        // Check if player is in desert biome
-        if (!isDesertBiome(playerLoc.getBlock().getBiome())) return;
-
-        // Check height requirement
-        if (playerLoc.getBlockY() < minSandstormHeight) return;
-
-        // Performance optimization - adjust particle count based on nearby players
-        int nearbyPlayers = (int) player.getWorld().getPlayers().stream()
-                .filter(p -> p.getLocation().distance(player.getLocation()) <= particleRange * 2)
-                .count();
         
-        double performanceMultiplier = Math.max(0.3, 1.0 / Math.max(1, nearbyPlayers - 1));
-        int actualRange = (int) (particleRange * particleMultiplier * performanceMultiplier);
-
-        // Create intensive particle spam like old system
-        for (int i = 0; i < 50; i++) { // 50 particles per tick per player
-            // Random location around player
-            double offsetX = (random.nextDouble() - 0.5) * actualRange;
-            double offsetY = random.nextDouble() * particleYRange;
-            double offsetZ = (random.nextDouble() - 0.5) * actualRange;
-
-            Location particleLoc = playerLoc.clone().add(offsetX, offsetY, offsetZ);
-
-            // Create sand-colored dust particles
-            Particle.DustOptions dustOptions = new Particle.DustOptions(
-                    org.bukkit.Color.fromRGB(237, 201, 175), // Light sand color
-                    1.0f
-            );
-
-            // Spawn dust particles with movement
-            player.spawnParticle(Particle.DUST_PLUME, particleLoc, 1,
-                    0.5, 0.3, 0.5, // Spread
-                    0.1, // Speed
-                    dustOptions
-            );
-
-            // Add some regular dust particles for density
-            if (random.nextInt(3) == 0) {
-                player.spawnParticle(Particle.ASH, particleLoc, 1,
-                        0.3, 0.2, 0.3, 0.05);
-            }
-        }
-
-        // Create swirling sand effect around player
-        for (int i = 0; i < 20; i++) {
-            double angle = (System.currentTimeMillis() / 50.0 + i * 18) % 360;
-            double radians = Math.toRadians(angle);
-            double radius = 3.0 + Math.sin(System.currentTimeMillis() / 1000.0) * 1.0;
-
-            double x = playerLoc.getX() + Math.cos(radians) * radius;
-            double y = playerLoc.getY() + 1.0 + Math.sin(System.currentTimeMillis() / 800.0 + i) * 0.5;
-            double z = playerLoc.getZ() + Math.sin(radians) * radius;
-
-            Location swirl = new Location(player.getWorld(), x, y, z);
-
-            Particle.DustOptions swirlingDust = new Particle.DustOptions(
-                    org.bukkit.Color.fromRGB(194, 154, 108), // Darker sand color
-                    0.8f
-            );
-
-            player.spawnParticle(Particle.DUST_PLUME, swirl, 1,
-                    0.1, 0.1, 0.1, 0.02, swirlingDust);
-        }
-
-        // Dense particle walls at range edges for storm effect
-        if (random.nextInt(10) == 0) {
-            for (int edge = 0; edge < 8; edge++) {
-                double angle = edge * 45; // 8 directions
-                double radians = Math.toRadians(angle);
-                double distance = actualRange * 0.8;
-
-                Location edgeLoc = playerLoc.clone().add(
-                        Math.cos(radians) * distance,
-                        random.nextDouble() * 4,
-                        Math.sin(radians) * distance
-                );
-
-                // Dense particle wall
-                for (int p = 0; p < 5; p++) {
-                    Location wallParticle = edgeLoc.clone().add(
-                            (random.nextDouble() - 0.5) * 2,
-                            (random.nextDouble() - 0.5) * 2,
-                            (random.nextDouble() - 0.5) * 2
-                    );
-
-                    Particle.DustOptions wallDust = new Particle.DustOptions(
-                            org.bukkit.Color.fromRGB(160, 120, 80), // Dark sand
-                            1.2f
-                    );
-
-                    player.spawnParticle(Particle.DUST_PLUME, wallParticle, 1,
-                            0.3, 0.3, 0.3, 0.1, wallDust);
-                }
-            }
-        }
-
-        // Enhanced sandstorm wall effects
-        if (random.nextInt(5) == 0) {
-            createSandstormWalls(player);
-        }
-
-        // Play sandstorm sounds occasionally
-        if (random.nextInt(80) == 0) { // Every ~4 seconds
-            player.playSound(playerLoc, Sound.WEATHER_RAIN, 0.6f, 0.3f); // Low pitch for sand sound
-        }
-
-        // Add wind whoosh sounds
-        if (random.nextInt(120) == 0) { // Every ~6 seconds
-            player.playSound(playerLoc, Sound.ITEM_ELYTRA_FLYING, 0.4f, 0.5f);
-        }
-
-        // Add sand hitting sounds
-        if (random.nextInt(100) == 0) { // Every ~5 seconds
-            player.playSound(playerLoc, Sound.BLOCK_SAND_STEP, 0.5f, 0.8f);
-        }
-    }
-
-    // NEW: Enhanced sandstorm wall effects
-    private void createSandstormWalls(Player player) {
-        Location playerLoc = player.getLocation();
-        int wallCount = 6; // Six walls around player
+        String[] sandstormMessages = {
+            "§6§lThe sandstorm whips around you, blinding your vision...",
+            "§e§lStinging sand fills the air, making it hard to breathe!",
+            "§7§lThe desert wind carries walls of sand across the landscape!",
+            "§6§lSand devils dance in the swirling storm around you!",
+            "§e§lThe relentless sandstorm shows no signs of stopping!",
+            "§7§lVisibility drops to nothing in the howling desert wind!"
+        };
         
-        for (int wall = 0; wall < wallCount; wall++) {
-            createSandstormWall(player, playerLoc, wall);
-        }
-    }
-
-    private void createSandstormWall(Player player, Location center, int wallIndex) {
-        // Calculate wall position in a circle around player
-        double angle = wallIndex * (360.0 / 6.0); // 60 degrees apart
-        double radians = Math.toRadians(angle);
-        
-        // Position wall at edge of effect range
-        double wallDistance = particleRange * 0.7;
-        double wallX = center.getX() + Math.cos(radians) * wallDistance;
-        double wallZ = center.getZ() + Math.sin(radians) * wallDistance;
-        
-        Location wallCenter = new Location(center.getWorld(), wallX, center.getY(), wallZ);
-        
-        // Create wall particles moving toward player
-        int wallWidth = 8;
-        int wallHeight = 5;
-        
-        for (int x = -wallWidth/2; x <= wallWidth/2; x++) {
-            for (int y = 0; y < wallHeight; y++) {
-                if (random.nextInt(3) != 0) continue; // Sparse wall for performance
-                
-                // Calculate particle position perpendicular to the radius
-                double perpAngle = radians + Math.PI/2; // 90 degrees to the radius
-                double particleX = wallCenter.getX() + Math.cos(perpAngle) * x * 0.5;
-                double particleY = wallCenter.getY() + y * 0.8;
-                double particleZ = wallCenter.getZ() + Math.sin(perpAngle) * x * 0.5;
-                
-                Location particleLoc = new Location(center.getWorld(), particleX, particleY, particleZ);
-                
-                // Add some randomness
-                particleLoc.add(
-                    (random.nextDouble() - 0.5) * 0.8,
-                    (random.nextDouble() - 0.5) * 0.4,
-                    (random.nextDouble() - 0.5) * 0.8
-                );
-                
-                // Calculate velocity toward player
-                double deltaX = center.getX() - particleLoc.getX();
-                double deltaZ = center.getZ() - particleLoc.getZ();
-                double distance = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
-                
-                double velocityX = (deltaX / distance) * 0.2;
-                double velocityZ = (deltaZ / distance) * 0.2;
-                
-                // Create moving sand particles
-                Particle.DustOptions sandDust = new Particle.DustOptions(
-                    org.bukkit.Color.fromRGB(180 + random.nextInt(40), 140 + random.nextInt(40), 90 + random.nextInt(30)),
-                    1.0f + random.nextFloat() * 0.5f
-                );
-                
-                player.spawnParticle(Particle.DUST, particleLoc, 1,
-                    velocityX, 0.0, velocityZ, 0.1, sandDust);
-                
-                // Add some cloud particles for density
-                if (random.nextInt(2) == 0) {
-                    player.spawnParticle(Particle.CLOUD, particleLoc, 1,
-                        velocityX * 0.5, 0.05, velocityZ * 0.5, 0.05);
-                }
-                
-                // Add ash particles for fine sand
-                if (random.nextInt(4) == 0) {
-                    player.spawnParticle(Particle.ASH, particleLoc, 1,
-                        velocityX * 0.3, 0.02, velocityZ * 0.3, 0.02);
-                }
-            }
-        }
+        String message = sandstormMessages[random.nextInt(sandstormMessages.length)];
+        player.sendMessage("§6[OrbisClimate] " + message);
     }
 
     public boolean isSandstormActive(World world) {
         return activeSandstorms.contains(world);
     }
 
+    public boolean hasPlayerSandstorm(Player player) {
+        return activePlayerSandstorms.containsKey(player);
+    }
+
     public void checkForSandstorms() {
+        if (!sandstormsEnabled) return;
+        
         for (World world : Bukkit.getWorlds()) {
             WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(world);
 
@@ -425,9 +530,26 @@ public class SandstormManager {
         for (World world : new HashSet<>(activeSandstorms)) {
             stopSandstorm(world);
         }
+        activePlayerSandstorms.clear();
+        lastParticleTime.clear();
     }
 
     public void reloadConfig() {
         loadConfig();
+    }
+
+    // Data class for player sandstorm tracking
+    private static class PlayerSandstormData {
+        private long startTime;
+        private long lastEffectTime;
+        
+        public PlayerSandstormData() {
+            this.startTime = System.currentTimeMillis();
+            this.lastEffectTime = 0;
+        }
+        
+        public long getStartTime() { return startTime; }
+        public long getLastEffectTime() { return lastEffectTime; }
+        public void setLastEffectTime(long time) { this.lastEffectTime = time; }
     }
 }
