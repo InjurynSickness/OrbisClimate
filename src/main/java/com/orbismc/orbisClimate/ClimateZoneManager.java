@@ -18,7 +18,8 @@ public class ClimateZoneManager {
     public enum ClimateZone {
         ARCTIC("Arctic", -30, 0),
         TEMPERATE("Temperate", 0, 25),
-        DESERT("Desert", 15, 50);
+        DESERT("Desert", 15, 50),
+        ARID("Arid", 10, 45);
 
         private final String displayName;
         private final int minTemp;
@@ -75,9 +76,6 @@ public class ClimateZoneManager {
     private final WindManager windManager;
     private final Random random;
 
-    // Configuration per world
-    private final Map<String, Map<ClimateZone, ZoneConfiguration>> worldZoneConfigs = new HashMap<>();
-    
     // Runtime data
     private final Map<String, Map<ClimateZone, ZoneWeatherData>> worldZoneData = new HashMap<>();
     private final Map<Player, ClimateZone> playerZoneCache = new HashMap<>();
@@ -93,98 +91,8 @@ public class ClimateZoneManager {
         this.windManager = windManager;
         this.random = new Random();
 
-        loadConfiguration();
         initializeWorldData();
         startClimateTasks();
-    }
-
-    public static class ZoneConfiguration {
-        private final boolean enabled;
-        private final Set<Biome> biomes;
-        private final int minY;
-        private final int maxY;
-        private final int minX;
-        private final int maxX;
-        private final int minZ;
-        private final int maxZ;
-        private final double temperatureModifier;
-        private final boolean useCoordinates;
-
-        public ZoneConfiguration(boolean enabled, Set<Biome> biomes, int minY, int maxY, 
-                               int minX, int maxX, int minZ, int maxZ, 
-                               double temperatureModifier, boolean useCoordinates) {
-            this.enabled = enabled;
-            this.biomes = biomes;
-            this.minY = minY;
-            this.maxY = maxY;
-            this.minX = minX;
-            this.maxX = maxX;
-            this.minZ = minZ;
-            this.maxZ = maxZ;
-            this.temperatureModifier = temperatureModifier;
-            this.useCoordinates = useCoordinates;
-        }
-
-        // Getters
-        public boolean isEnabled() { return enabled; }
-        public Set<Biome> getBiomes() { return biomes; }
-        public int getMinY() { return minY; }
-        public int getMaxY() { return maxY; }
-        public int getMinX() { return minX; }
-        public int getMaxX() { return maxX; }
-        public int getMinZ() { return minZ; }
-        public int getMaxZ() { return maxZ; }
-        public double getTemperatureModifier() { return temperatureModifier; }
-        public boolean useCoordinates() { return useCoordinates; }
-    }
-
-    private void loadConfiguration() {
-        // Load zone configurations for each world
-        for (World world : Bukkit.getWorlds()) {
-            loadWorldZoneConfiguration(world.getName());
-        }
-    }
-
-    private void loadWorldZoneConfiguration(String worldName) {
-        Map<ClimateZone, ZoneConfiguration> zoneConfigs = new HashMap<>();
-        
-        for (ClimateZone zone : ClimateZone.values()) {
-            String zonePath = "climate_zones." + worldName + "." + zone.name().toLowerCase();
-            
-            boolean enabled = plugin.getConfig().getBoolean(zonePath + ".enabled", true);
-            boolean useCoordinates = plugin.getConfig().getBoolean(zonePath + ".use_coordinates", false);
-            
-            // Load biomes
-            Set<Biome> biomes = new HashSet<>();
-            List<String> biomeNames = plugin.getConfig().getStringList(zonePath + ".biomes");
-            for (String biomeName : biomeNames) {
-                try {
-                    Biome biome = Biome.valueOf(biomeName.toUpperCase());
-                    biomes.add(biome);
-                } catch (IllegalArgumentException e) {
-                    plugin.getLogger().warning("Invalid biome name in config: " + biomeName);
-                }
-            }
-            
-            // Load coordinate bounds (if using coordinates)
-            int minX = plugin.getConfig().getInt(zonePath + ".coordinates.min_x", Integer.MIN_VALUE);
-            int maxX = plugin.getConfig().getInt(zonePath + ".coordinates.max_x", Integer.MAX_VALUE);
-            int minZ = plugin.getConfig().getInt(zonePath + ".coordinates.min_z", Integer.MIN_VALUE);
-            int maxZ = plugin.getConfig().getInt(zonePath + ".coordinates.max_z", Integer.MAX_VALUE);
-            int minY = plugin.getConfig().getInt(zonePath + ".coordinates.min_y", -64);
-            int maxY = plugin.getConfig().getInt(zonePath + ".coordinates.max_y", 320);
-            
-            double temperatureModifier = plugin.getConfig().getDouble(zonePath + ".temperature_modifier", 1.0);
-            
-            ZoneConfiguration config = new ZoneConfiguration(
-                enabled, biomes, minY, maxY, minX, maxX, minZ, maxZ, 
-                temperatureModifier, useCoordinates
-            );
-            
-            zoneConfigs.put(zone, config);
-        }
-        
-        worldZoneConfigs.put(worldName, zoneConfigs);
     }
 
     private void initializeWorldData() {
@@ -224,45 +132,62 @@ public class ClimateZoneManager {
         }
 
         Location loc = player.getLocation();
-        String worldName = loc.getWorld().getName();
-        Map<ClimateZone, ZoneConfiguration> zoneConfigs = worldZoneConfigs.get(worldName);
+        Biome biome = loc.getBlock().getBiome();
         
-        if (zoneConfigs == null) {
-            return ClimateZone.TEMPERATE; // Default fallback
+        // Simple biome-based detection only
+        ClimateZone zone;
+        if (isArcticBiome(biome)) {
+            zone = ClimateZone.ARCTIC;
+        } else if (isDesertBiome(biome)) {
+            zone = ClimateZone.DESERT;
+        } else if (isAridBiome(biome)) {
+            zone = ClimateZone.ARID;
+        } else {
+            zone = ClimateZone.TEMPERATE;
         }
-
-        // Check each zone to find which one the player is in
-        for (Map.Entry<ClimateZone, ZoneConfiguration> entry : zoneConfigs.entrySet()) {
-            ClimateZone zone = entry.getKey();
-            ZoneConfiguration config = entry.getValue();
-            
-            if (!config.isEnabled()) continue;
-            
-            if (config.useCoordinates()) {
-                // Use coordinate-based detection
-                if (isLocationInZone(loc, config)) {
-                    playerZoneCache.put(player, zone);
-                    return zone;
-                }
-            } else {
-                // Use biome-based detection
-                if (config.getBiomes().contains(loc.getBlock().getBiome())) {
-                    playerZoneCache.put(player, zone);
-                    return zone;
-                }
-            }
-        }
-
-        // Default to temperate if no specific zone found
-        ClimateZone defaultZone = ClimateZone.TEMPERATE;
-        playerZoneCache.put(player, defaultZone);
-        return defaultZone;
+        
+        playerZoneCache.put(player, zone);
+        return zone;
     }
 
-    private boolean isLocationInZone(Location loc, ZoneConfiguration config) {
-        return loc.getBlockX() >= config.getMinX() && loc.getBlockX() <= config.getMaxX() &&
-               loc.getBlockZ() >= config.getMinZ() && loc.getBlockZ() <= config.getMaxZ() &&
-               loc.getBlockY() >= config.getMinY() && loc.getBlockY() <= config.getMaxY();
+    private boolean isArcticBiome(Biome biome) {
+        switch (biome) {
+            case SNOWY_PLAINS:
+            case SNOWY_TAIGA:
+            case SNOWY_SLOPES:
+            case SNOWY_BEACH:
+            case FROZEN_RIVER:
+            case FROZEN_OCEAN:
+            case DEEP_FROZEN_OCEAN:
+            case ICE_SPIKES:
+            case GROVE:
+            case JAGGED_PEAKS:
+            case FROZEN_PEAKS:
+            case TAIGA:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private boolean isDesertBiome(Biome biome) {
+        switch (biome) {
+            case DESERT:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private boolean isAridBiome(Biome biome) {
+        switch (biome) {
+            case BADLANDS:
+            case ERODED_BADLANDS:
+            case WOODED_BADLANDS:
+                return true;
+            default:
+                return false;
+        }
     }
 
     private void updateWorldClimate(World world) {
@@ -327,7 +252,8 @@ public class ClimateZoneManager {
                 return WeatherForecast.WeatherType.CLEAR; // Will show wind-blown snow
                 
             case DESERT:
-                // Desert: Heat mirages, potential drought
+            case ARID:
+                // Desert/Arid: Heat mirages, potential drought
                 if (data.isDroughtActive()) {
                     return WeatherForecast.WeatherType.CLEAR; // Will show drought/heat effects
                 }
@@ -344,7 +270,9 @@ public class ClimateZoneManager {
             case ARCTIC:
                 return hasThunder ? WeatherForecast.WeatherType.BLIZZARD : WeatherForecast.WeatherType.SNOW;
             case DESERT:
-                return hasThunder ? WeatherForecast.WeatherType.SANDSTORM : WeatherForecast.WeatherType.SANDSTORM;
+            case ARID:
+                // No rain in arid zones
+                return WeatherForecast.WeatherType.CLEAR;
             case TEMPERATE:
             default:
                 return hasThunder ? WeatherForecast.WeatherType.THUNDERSTORM : WeatherForecast.WeatherType.LIGHT_RAIN;
@@ -356,7 +284,8 @@ public class ClimateZoneManager {
             case ARCTIC:
                 return WeatherForecast.WeatherType.SNOW;
             case DESERT:
-                return WeatherForecast.WeatherType.CLEAR; // Deserts don't get snow
+            case ARID:
+                return WeatherForecast.WeatherType.CLEAR; // Deserts/Arid don't get snow
             case TEMPERATE:
             default:
                 return season == Season.WINTER ? WeatherForecast.WeatherType.SNOW : WeatherForecast.WeatherType.LIGHT_RAIN;
@@ -368,6 +297,7 @@ public class ClimateZoneManager {
             case ARCTIC:
                 return WeatherForecast.WeatherType.BLIZZARD;
             case DESERT:
+            case ARID:
                 return WeatherForecast.WeatherType.SANDSTORM; // Desert equivalent
             case TEMPERATE:
             default:
@@ -380,6 +310,7 @@ public class ClimateZoneManager {
             case ARCTIC:
                 return WeatherForecast.WeatherType.BLIZZARD; // Arctic equivalent
             case DESERT:
+            case ARID:
                 return WeatherForecast.WeatherType.SANDSTORM;
             case TEMPERATE:
             default:
@@ -412,6 +343,7 @@ public class ClimateZoneManager {
                 applyArcticEffects(player, zoneWeather, world);
                 break;
             case DESERT:
+            case ARID:
                 applyDesertEffects(player, zoneWeather, zoneData, world);
                 break;
             case TEMPERATE:
@@ -611,7 +543,7 @@ public class ClimateZoneManager {
         // Weather modifiers
         switch (weather) {
             case CLEAR:
-                if (zone == ClimateZone.DESERT && data.isDroughtActive()) {
+                if ((zone == ClimateZone.DESERT || zone == ClimateZone.ARID) && data.isDroughtActive()) {
                     modifier += 15; // Drought heat
                 }
                 break;
@@ -630,7 +562,7 @@ public class ClimateZoneManager {
         if (season != null) {
             switch (season) {
                 case SUMMER:
-                    modifier += zone == ClimateZone.DESERT ? 10 : 5;
+                    modifier += (zone == ClimateZone.DESERT || zone == ClimateZone.ARID) ? 10 : 5;
                     break;
                 case WINTER:
                     modifier -= zone == ClimateZone.ARCTIC ? 15 : 10;
@@ -646,29 +578,39 @@ public class ClimateZoneManager {
         Map<ClimateZone, ZoneWeatherData> zoneData = worldZoneData.get(world.getName());
         if (zoneData == null) return;
 
+        // Check desert zones
         ZoneWeatherData desertData = zoneData.get(ClimateZone.DESERT);
-        if (desertData == null) return;
+        checkZoneForDrought(world, desertData, ClimateZone.DESERT);
+        
+        // Check arid zones
+        ZoneWeatherData aridData = zoneData.get(ClimateZone.ARID);
+        checkZoneForDrought(world, aridData, ClimateZone.ARID);
+    }
+
+    private void checkZoneForDrought(World world, ZoneWeatherData zoneData, ClimateZone zone) {
+        if (zoneData == null) return;
 
         // Check if drought conditions are met (5+ consecutive clear days)
-        if (desertData.getConsecutiveClearDays() >= 5 && !desertData.isDroughtActive()) {
-            desertData.setDroughtActive(true);
-            desertData.setLastDroughtCheck(System.currentTimeMillis());
+        if (zoneData.getConsecutiveClearDays() >= 5 && !zoneData.isDroughtActive()) {
+            zoneData.setDroughtActive(true);
+            zoneData.setLastDroughtCheck(System.currentTimeMillis());
             
-            // Notify players in desert zones
+            // Notify players in this zone
             for (Player player : world.getPlayers()) {
-                if (getPlayerClimateZone(player) == ClimateZone.DESERT &&
+                if (getPlayerClimateZone(player) == zone &&
                     player.hasPermission("orbisclimate.notifications")) {
-                    player.sendMessage("§6[OrbisClimate] §c§lDrought conditions have begun in the desert!");
+                    player.sendMessage("§6[OrbisClimate] §c§lDrought conditions have begun in the " + 
+                        zone.getDisplayName().toLowerCase() + "!");
                 }
             }
-        } else if (desertData.getCurrentWeather() != WeatherForecast.WeatherType.CLEAR && 
-                   desertData.isDroughtActive()) {
+        } else if (zoneData.getCurrentWeather() != WeatherForecast.WeatherType.CLEAR && 
+                   zoneData.isDroughtActive()) {
             // End drought if weather changes
-            desertData.setDroughtActive(false);
-            desertData.setConsecutiveClearDays(0);
+            zoneData.setDroughtActive(false);
+            zoneData.setConsecutiveClearDays(0);
             
             for (Player player : world.getPlayers()) {
-                if (getPlayerClimateZone(player) == ClimateZone.DESERT &&
+                if (getPlayerClimateZone(player) == zone &&
                     player.hasPermission("orbisclimate.notifications")) {
                     player.sendMessage("§6[OrbisClimate] §b§lThe drought has ended!");
                 }
@@ -716,7 +658,7 @@ public class ClimateZoneManager {
 
     public boolean isPlayerInDrought(Player player) {
         ClimateZone zone = getPlayerClimateZone(player);
-        if (zone != ClimateZone.DESERT) return false;
+        if (zone != ClimateZone.DESERT && zone != ClimateZone.ARID) return false;
         
         Map<ClimateZone, ZoneWeatherData> zoneData = worldZoneData.get(player.getWorld().getName());
         return zoneData != null && zoneData.get(zone) != null && zoneData.get(zone).isDroughtActive();
@@ -733,8 +675,6 @@ public class ClimateZoneManager {
 
     // Configuration reload
     public void reloadConfig() {
-        worldZoneConfigs.clear();
-        loadConfiguration();
         clearPlayerCache(); // Clear cache when config changes
     }
 

@@ -77,7 +77,7 @@ public class OrbisClimate extends JavaPlugin implements Listener {
 
             // Initialize blizzard manager
             getLogger().info("Initializing blizzard manager...");
-            blizzardManager = new BlizzardManager(this, weatherForecast);
+            blizzardManager = new BlizzardManager(this, weatherForecast, windManager);
             getLogger().info("✓ Blizzard manager initialized");
 
             // Initialize sandstorm manager
@@ -212,12 +212,12 @@ public class OrbisClimate extends JavaPlugin implements Listener {
         }
 
         getLogger().info("Disabling vanilla weather system...");
-        
+
         // Disable weather for all worlds immediately
         for (World world : Bukkit.getWorlds()) {
             disableWeatherForWorld(world);
         }
-        
+
         // Create a task to prevent vanilla weather from ever starting
         Bukkit.getScheduler().runTaskTimer(this, () -> {
             for (World world : Bukkit.getWorlds()) {
@@ -227,12 +227,12 @@ public class OrbisClimate extends JavaPlugin implements Listener {
                     world.setWeatherDuration(Integer.MAX_VALUE); // Prevent vanilla weather
                 }
                 if (world.isThundering() && !isOurWeatherActive(world)) {
-                    world.setThundering(false); 
+                    world.setThundering(false);
                     world.setThunderDuration(Integer.MAX_VALUE);
                 }
             }
         }, 0L, 400L); // Check every 20 seconds
-        
+
         getLogger().info("✓ Vanilla weather system disabled");
     }
 
@@ -251,9 +251,9 @@ public class OrbisClimate extends JavaPlugin implements Listener {
      */
     private boolean isOurWeatherActive(World world) {
         if (weatherForecast == null) return false;
-        
+
         WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(world);
-        return currentWeather != null && 
+        return currentWeather != null &&
                (currentWeather.getRainIntensity() > 0 || currentWeather.getThunderIntensity() > 0);
     }
 

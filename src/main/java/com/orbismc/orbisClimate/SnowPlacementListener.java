@@ -9,6 +9,7 @@ import org.bukkit.event.weather.WeatherChangeEvent;
 
 /**
  * Listener to prevent unwanted snow placement while keeping visual effects
+ * Works alongside RealisticSeasons to prevent all snow/ice formation
  */
 public class SnowPlacementListener implements Listener {
 
@@ -27,7 +28,8 @@ public class SnowPlacementListener implements Listener {
     }
 
     /**
-     * Prevent snow blocks from forming naturally during our snow/blizzard weather
+     * HIGH PRIORITY: Run AFTER RealisticSeasons but BEFORE other plugins
+     * This ensures we catch anything RealisticSeasons might miss
      */
     @EventHandler(priority = EventPriority.HIGH)
     public void onBlockForm(BlockFormEvent event) {
@@ -35,48 +37,104 @@ public class SnowPlacementListener implements Listener {
             return; // Feature disabled
         }
 
+        // Skip if already cancelled by RealisticSeasons
+        if (event.isCancelled()) {
+            return;
+        }
+
         Material newType = event.getNewState().getType();
 
-        // Prevent snow layer placement during our managed weather
-        if (preventSnowPlacement && newType == Material.SNOW) {
-            WeatherForecast.WeatherType currentWeather = plugin.getWeatherForecast().getCurrentWeather(event.getBlock().getWorld());
-
-            if (currentWeather == WeatherForecast.WeatherType.SNOW ||
-                    currentWeather == WeatherForecast.WeatherType.BLIZZARD) {
-
+        // Prevent all snow-related blocks during our managed weather OR always if configured
+        if (preventSnowPlacement && isSnowMaterial(newType)) {
+            // Check if we're managing snow weather OR if we want to prevent all snow
+            boolean preventAll = plugin.getConfig().getBoolean("weather_control.prevent_all_snow", false);
+            
+            if (preventAll) {
+                // Prevent ALL snow formation regardless of weather
                 event.setCancelled(true);
-
-                if (plugin.getConfig().getBoolean("debug.log_snow_prevention", false)) {
-                    plugin.getLogger().info("Prevented snow placement at " +
-                            event.getBlock().getLocation() + " during " + currentWeather.getDisplayName());
+                logPrevention(newType, event, "all weather conditions");
+            } else {
+                // Only prevent during our snow/blizzard weather
+                WeatherForecast.WeatherType currentWeather = plugin.getWeatherForecast().getCurrentWeather(event.getBlock().getWorld());
+                
+                if (currentWeather == WeatherForecast.WeatherType.SNOW ||
+                        currentWeather == WeatherForecast.WeatherType.BLIZZARD) {
+                    event.setCancelled(true);
+                    logPrevention(newType, event, currentWeather.getDisplayName());
                 }
             }
         }
 
-        // Optionally prevent ice formation as well
-        if (preventIceFormation && newType == Material.ICE) {
-            WeatherForecast.WeatherType currentWeather = plugin.getWeatherForecast().getCurrentWeather(event.getBlock().getWorld());
-
-            if (currentWeather == WeatherForecast.WeatherType.SNOW ||
-                    currentWeather == WeatherForecast.WeatherType.BLIZZARD) {
-
+        // Prevent ice formation during our weather OR always if configured
+        if (preventIceFormation && isIceMaterial(newType)) {
+            boolean preventAll = plugin.getConfig().getBoolean("weather_control.prevent_all_ice", false);
+            
+            if (preventAll) {
+                // Prevent ALL ice formation regardless of weather
                 event.setCancelled(true);
-
-                if (plugin.getConfig().getBoolean("debug.log_snow_prevention", false)) {
-                    plugin.getLogger().info("Prevented ice formation at " +
-                            event.getBlock().getLocation() + " during " + currentWeather.getDisplayName());
+                logPrevention(newType, event, "all conditions");
+            } else {
+                // Only prevent during our cold weather
+                WeatherForecast.WeatherType currentWeather = plugin.getWeatherForecast().getCurrentWeather(event.getBlock().getWorld());
+                
+                if (currentWeather == WeatherForecast.WeatherType.SNOW ||
+                        currentWeather == WeatherForecast.WeatherType.BLIZZARD) {
+                    event.setCancelled(true);
+                    logPrevention(newType, event, currentWeather.getDisplayName());
                 }
             }
         }
     }
 
     /**
-     * Additional protection: prevent vanilla weather from interfering
-     * This catches any vanilla weather changes that might slip through
+     * Check if material is snow-related
      */
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onWeatherChange(WeatherChangeEvent event) {
-        // Only intervene if our weather system is active
+    private boolean isSnowMaterial(Material material) {
+        switch (material) {
+            case SNOW:          // Snow layers (the main culprit!)
+            case SNOW_BLOCK:    // Full snow blocks
+            case POWDER_SNOW:   // 1.17+ powder snow
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * Check if material is ice-related
+     */
+    private boolean isIceMaterial(Material material) {
+        switch (material) {
+            case ICE:
+            case PACKED_ICE:
+            case BLUE_ICE:
+            case FROSTED_ICE:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * Log prevention with details
+     */
+    private void logPrevention(Material material, BlockFormEvent event, String reason) {
+        if (plugin.getConfig().getBoolean("debug.log_snow_prevention", false)) {
+            plugin.getLogger().info("Prevented " + material.name().toLowerCase() + " formation at " +
+                    event.getBlock().getLocation() + " during " + reason);
+        }
+    }
+
+    /**
+     * LOWEST PRIORITY: Run after all other weather plugins to override their decisions
+     */
+    @EventHandler(priority = EventPriority.LOWEST) 
+    public void onWeatherChangeOverride(WeatherChangeEvent event) {
+        // Only intervene if we want to completely control weather
+        if (!plugin.getConfig().getBoolean("weather_control.override_all_weather", false)) {
+            return;
+        }
+
         WeatherForecast.WeatherType ourWeather = plugin.getWeatherForecast().getCurrentWeather(event.getWorld());
 
         // If we're managing snow/blizzard weather, ensure vanilla doesn't interfere
@@ -88,7 +146,7 @@ public class SnowPlacementListener implements Listener {
                 event.setCancelled(true);
 
                 if (plugin.getConfig().getBoolean("debug.log_weather_interference", false)) {
-                    plugin.getLogger().info("Prevented vanilla weather interference during " +
+                    plugin.getLogger().info("Overrode vanilla weather interference during " +
                             ourWeather.getDisplayName() + " in " + event.getWorld().getName());
                 }
             }

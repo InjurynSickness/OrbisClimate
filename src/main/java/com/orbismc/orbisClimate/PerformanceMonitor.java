@@ -6,18 +6,14 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Performance monitoring system for OrbisClimate
- * Tracks TPS, memory usage, and particle counts to optimize performance
+ * Simplified performance monitoring system for OrbisClimate
+ * Tracks TPS and memory usage to optimize performance
  */
 public class PerformanceMonitor {
     
     private final OrbisClimate plugin;
-    private final Map<Player, ParticleStats> playerParticleStats = new ConcurrentHashMap<>();
     private final MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
     
     // Configuration
@@ -26,8 +22,6 @@ public class PerformanceMonitor {
     private boolean autoReduceEffects;
     private boolean memoryMonitoring;
     private int memoryWarningThreshold;
-    private boolean trackParticleCounts;
-    private int maxParticlesPerPlayerWarning;
     
     // Runtime data
     private BukkitTask monitoringTask;
@@ -37,8 +31,6 @@ public class PerformanceMonitor {
     private long lastTPSWarning = 0;
     private final long MEMORY_WARNING_COOLDOWN = 300000; // 5 minutes
     private final long TPS_WARNING_COOLDOWN = 60000; // 1 minute
-    private long lastTickTime = System.nanoTime();
-    private double estimatedTPS = 20.0;
     
     public PerformanceMonitor(OrbisClimate plugin) {
         this.plugin = plugin;
@@ -55,8 +47,6 @@ public class PerformanceMonitor {
         autoReduceEffects = plugin.getConfig().getBoolean("monitoring.auto_reduce_effects", true);
         memoryMonitoring = plugin.getConfig().getBoolean("monitoring.memory_monitoring", true);
         memoryWarningThreshold = plugin.getConfig().getInt("monitoring.memory_warning_threshold", 85);
-        trackParticleCounts = plugin.getConfig().getBoolean("monitoring.track_particle_counts", true);
-        maxParticlesPerPlayerWarning = plugin.getConfig().getInt("monitoring.max_particles_per_player_warning", 150);
     }
     
     private void startMonitoring() {
@@ -67,34 +57,25 @@ public class PerformanceMonitor {
                 checkMemoryUsage();
             }
             
-            if (trackParticleCounts) {
-                checkParticleCounts();
-            }
-            
             // Check if we need to enter/exit performance mode
             updatePerformanceMode();
             
         }, 0L, 100L); // Every 5 seconds
     }
     
-    private void updateTPS() {
+    public double getCurrentTPS() {
         try {
-            // Try to get server TPS
             Class<?> serverClass = Class.forName("org.bukkit.Bukkit");
             java.lang.reflect.Method getTPS = serverClass.getMethod("getTPS");
             double[] tps = (double[]) getTPS.invoke(null);
-            currentTPS = Math.round(tps[0] * 100.0) / 100.0;
+            return Math.round(tps[0] * 100.0) / 100.0;
         } catch (Exception e) {
-            try {
-                // Fallback method
-                Object server = plugin.getServer().getClass().getMethod("getServer").invoke(plugin.getServer());
-                double[] tps = (double[]) server.getClass().getField("recentTps").get(server);
-                currentTPS = Math.round(tps[0] * 100.0) / 100.0;
-            } catch (Exception ex) {
-                // Calculate rough TPS based on task timing
-                currentTPS = estimateTPS();
-            }
+            return 20.0; // Just return default if can't get real TPS
         }
+    }
+    
+    private void updateTPS() {
+        currentTPS = getCurrentTPS();
         
         // Warn if TPS is low
         if (currentTPS < tpsWarningThreshold) {
@@ -107,22 +88,6 @@ public class PerformanceMonitor {
                 lastTPSWarning = currentTime;
             }
         }
-    }
-    
-    private double estimateTPS() {
-        long currentTime = System.nanoTime();
-        long timeDiff = currentTime - lastTickTime;
-        lastTickTime = currentTime;
-        
-        if (timeDiff > 0) {
-            double tickTime = timeDiff / 1_000_000.0; // Convert to milliseconds
-            double currentTickTPS = 1000.0 / Math.max(tickTime, 50.0); // Minimum 50ms per tick
-            
-            // Smooth the estimate
-            estimatedTPS = (estimatedTPS * 0.9) + (currentTickTPS * 0.1);
-        }
-        
-        return Math.min(20.0, estimatedTPS);
     }
     
     private void checkMemoryUsage() {
@@ -149,27 +114,6 @@ public class PerformanceMonitor {
                     System.gc();
                 }
             }
-        }
-    }
-    
-    private void checkParticleCounts() {
-        for (Map.Entry<Player, ParticleStats> entry : playerParticleStats.entrySet()) {
-            Player player = entry.getKey();
-            ParticleStats stats = entry.getValue();
-            
-            if (!player.isOnline()) {
-                continue;
-            }
-            
-            if (stats.getCurrentParticleCount() > maxParticlesPerPlayerWarning) {
-                plugin.getLogger().warning(String.format(
-                    "Player %s has high particle count: %d (threshold: %d)",
-                    player.getName(), stats.getCurrentParticleCount(), maxParticlesPerPlayerWarning
-                ));
-            }
-            
-            // Reset counters for next check
-            stats.resetCounters();
         }
     }
     
@@ -222,13 +166,6 @@ public class PerformanceMonitor {
     
     // Public methods for other managers to use
     
-    public void trackParticles(Player player, int particleCount) {
-        if (!trackParticleCounts) return;
-        
-        ParticleStats stats = playerParticleStats.computeIfAbsent(player, k -> new ParticleStats());
-        stats.addParticles(particleCount);
-    }
-    
     public double getPerformanceMultiplier() {
         if (!monitoringEnabled) return 1.0;
         
@@ -250,23 +187,10 @@ public class PerformanceMonitor {
         return performanceMode;
     }
     
-    public double getCurrentTPS() {
-        return currentTPS;
-    }
-    
     public int getRecommendedParticleCount(int baseCount, Player player) {
         if (!monitoringEnabled) return baseCount;
         
         double multiplier = getPerformanceMultiplier();
-        
-        // Additional reduction for players with high particle counts
-        if (trackParticleCounts) {
-            ParticleStats stats = playerParticleStats.get(player);
-            if (stats != null && stats.getCurrentParticleCount() > maxParticlesPerPlayerWarning * 0.8) {
-                multiplier *= 0.7; // Further reduce for high-particle players
-            }
-        }
-        
         return Math.max(1, (int) (baseCount * multiplier));
     }
     
@@ -274,27 +198,14 @@ public class PerformanceMonitor {
         if (!monitoringEnabled) return false;
         
         // Skip effects entirely if performance is very poor
-        if (currentTPS < 10.0) {
-            return true;
-        }
-        
-        // Skip for players with extremely high particle counts
-        if (trackParticleCounts && player != null) {
-            ParticleStats stats = playerParticleStats.get(player);
-            if (stats != null && stats.getCurrentParticleCount() > maxParticlesPerPlayerWarning * 1.5) {
-                return true;
-            }
-        }
-        
-        return false;
+        return currentTPS < 10.0;
     }
     
     public void cleanupPlayer(Player player) {
-        playerParticleStats.remove(player);
+        // Simple cleanup - no per-player data to clean
     }
     
     public void clearAllData() {
-        playerParticleStats.clear();
         lastMemoryWarning = 0;
         lastTPSWarning = 0;
     }
@@ -314,14 +225,6 @@ public class PerformanceMonitor {
         
         report.append(String.format("§fEffect Multiplier: §f%.1fx\n", getPerformanceMultiplier()));
         
-        if (trackParticleCounts) {
-            int totalParticles = playerParticleStats.values().stream()
-                .mapToInt(ParticleStats::getCurrentParticleCount)
-                .sum();
-            report.append(String.format("§fTotal Active Particles: §f%d\n", totalParticles));
-            report.append(String.format("§fTracked Players: §f%d\n", playerParticleStats.size()));
-        }
-        
         return report.toString();
     }
     
@@ -339,34 +242,6 @@ public class PerformanceMonitor {
     public void shutdown() {
         if (monitoringTask != null) {
             monitoringTask.cancel();
-        }
-        playerParticleStats.clear();
-    }
-    
-    // Inner class to track particle statistics per player
-    private static class ParticleStats {
-        private int currentParticleCount = 0;
-        private int totalParticlesThisPeriod = 0;
-        private long lastReset = System.currentTimeMillis();
-        
-        public void addParticles(int count) {
-            currentParticleCount += count;
-            totalParticlesThisPeriod += count;
-        }
-        
-        public int getCurrentParticleCount() {
-            return currentParticleCount;
-        }
-        
-        public void resetCounters() {
-            // Decay current count over time
-            long timeSinceReset = System.currentTimeMillis() - lastReset;
-            if (timeSinceReset > 5000) { // 5 seconds
-                currentParticleCount = Math.max(0, currentParticleCount - (int)(timeSinceReset / 100));
-                lastReset = System.currentTimeMillis();
-            }
-            
-            totalParticlesThisPeriod = 0;
         }
     }
 }

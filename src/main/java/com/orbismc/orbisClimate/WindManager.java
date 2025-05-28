@@ -694,10 +694,7 @@ public class WindManager {
         int particleCount = (int) (adjustedParticleCount * 0.4 * seasonalMultiplier * force);
         particleCount = Math.max(2, Math.min(particleCount, maxParticles / 2));
 
-        // Track particles for performance monitoring
-        if (performanceMonitor != null) {
-            performanceMonitor.trackParticles(player, particleCount);
-        }
+        // REMOVED: Particle tracking for performance monitor
 
         BiomeParticleData particleData = getBiomeParticleData(biome, currentSeason, currentWeather);
 
@@ -846,6 +843,16 @@ public class WindManager {
                         Particle.DUST_COLOR_TRANSITION,
                         Color.fromRGB(237, 201, 175),
                         Color.fromRGB(194, 154, 108),
+                        Particle.ASH
+                );
+
+            case BADLANDS:
+            case ERODED_BADLANDS:
+            case WOODED_BADLANDS:
+                return new BiomeParticleData(
+                        Particle.DUST_COLOR_TRANSITION,
+                        Color.fromRGB(200, 150, 120),
+                        Color.fromRGB(150, 100, 70),
                         Particle.ASH
                 );
 

@@ -1,5 +1,5 @@
 # OrbisClimate Optimized Configuration
-# Performance-focused settings for better server performance
+# Performance-focused settings with blizzard/sandstorm controls and arid zones
 
 # ======= PERFORMANCE SETTINGS (PRIORITY) =======
 performance:
@@ -65,7 +65,7 @@ performance:
     smart_scaling: true
     player_density_threshold: 10  # Start reducing effects when 10+ players nearby
 
-# ======= PERFORMANCE MONITORING =======
+# ======= PERFORMANCE MONITORING (SIMPLIFIED) =======
 monitoring:
   # Enable performance monitoring
   enabled: true
@@ -79,10 +79,6 @@ monitoring:
   # Monitor memory usage
   memory_monitoring: true
   memory_warning_threshold: 85  # Percentage
-
-  # Track particle counts per player
-  track_particle_counts: true
-  max_particles_per_player_warning: 150
 
 # ======= WIND SYSTEM (OPTIMIZED) =======
 wind:
@@ -103,8 +99,9 @@ wind:
     min_seconds: 25         # Slightly reduced
     max_seconds: 90         # Reduced from 120
 
-# ======= BLIZZARD SYSTEM (OPTIMIZED) =======
+# ======= BLIZZARD SYSTEM (OPTIMIZED + CONTROLS) =======
 blizzard:
+  enabled: false              # NEW: Enable/disable blizzards
   damage: 1.0
   min_freezing_height: 65
   particle_range: 15        # Reduced from 20
@@ -112,8 +109,13 @@ blizzard:
   particle_multiplier: 1.5  # Reduced from 1.0
   temperature_threshold: 0.15
 
-# ======= SANDSTORM SYSTEM (OPTIMIZED) =======
+  # Localized blizzard system
+  localized_blizzards: true
+  max_players_per_blizzard: 10
+
+# ======= SANDSTORM SYSTEM (OPTIMIZED + CONTROLS) =======
 sandstorm:
+  enabled: false # NEW: Enable/disable sandstorms
   min_height: 62
   particle_range: 12        # Reduced from 15
   particle_y_range: 20      # Reduced from 25
@@ -122,7 +124,11 @@ sandstorm:
   slowness_duration: 100
   slowness_amplifier: 1
 
-# ======= CLIMATE ZONE SYSTEM (OPTIMIZED) =======
+  # Localized sandstorm system
+  localized_sandstorms: true
+  max_players_per_sandstorm: 8
+
+# ======= CLIMATE ZONE SYSTEM (OPTIMIZED + ARID ZONES) =======
 climate_zones:
   # Simplified world configuration for better performance
   world:
@@ -167,8 +173,16 @@ climate_zones:
       enabled: true
       use_coordinates: false
       temperature_modifier: 1.4
+      disable_rain: false  # Desert can still get rare rain
       biomes:
         - DESERT
+
+    arid:                   # NEW: Arid zone
+      enabled: true
+      use_coordinates: false
+      temperature_modifier: 1.3
+      disable_rain: true    # NEW: No rain in arid zones
+      biomes:
         - BADLANDS
         - ERODED_BADLANDS
         - WOODED_BADLANDS
@@ -198,6 +212,7 @@ temperature:
     arctic: -15
     temperate: 15
     desert: 35
+    arid: 30              # NEW: Arid zone temperature
 
   player_effects:
     cold:
@@ -211,7 +226,6 @@ temperature:
           - SLOWNESS:0:80  # Reduced duration
         severe_cold:
           - SLOWNESS:1:80
-         # - WITHER:0:40
 
     heat:
       mild_heat: 30
@@ -237,7 +251,7 @@ weather_progression:
     warning_count: 4      # Reduced from 6
 
   hail:
-    enabled: true
+    enabled: false
     chance_during_rain: 0.2  # Reduced from 0.3
     duration_minutes: 2      # Reduced from 3
     damage_per_second: 0.3   # Reduced from 0.5
@@ -253,8 +267,8 @@ weather_progression:
 
 # ======= AURORA SYSTEM (OPTIMIZED) =======
 aurora:
-  enabled: true
-  night_only: true
+  enabled: false
+  night_only: false
   chance_per_minute: 10  # Reduced from 15
 
   colors:
@@ -269,8 +283,8 @@ aurora:
 
 # ======= HEAT MIRAGE SYSTEM (OPTIMIZED) =======
 heat_mirages:
-  enabled: true
-  day_only: true
+  enabled: false
+  day_only: false
   chance_per_minute: 15  # Reduced from 20
   drought_chance_multiplier: 1.5  # Reduced from 2.0
 
@@ -330,20 +344,22 @@ enhanced_features:
     post_storm_effects: true
     enhanced_lightning: true
 
-
 # ======= WEATHER CONTROL =======
 weather_control:
-  # Completely disable vanilla Minecraft weather
+  # Basic snow/ice prevention during OrbisClimate weather
+  prevent_snow_placement: true
+  prevent_ice_formation: true
+
+  # ADVANCED: Prevent ALL snow/ice regardless of weather (overrides RealisticSeasons)
+  prevent_all_snow: true       # Set to true to prevent ALL snow formation
+  prevent_all_ice: true       # Set to true to prevent ALL ice formation
+
+  # NUCLEAR OPTION: Override all other weather plugins
+  override_all_weather: false  # Set to true to override RealisticSeasons weather changes
+
+  # Standard options
   disable_vanilla_weather: true
-
-  # Re-enable vanilla weather when plugin shuts down
   restore_vanilla_on_shutdown: true
-
-  prevent_snow_placement: true        # Prevent snow blocks
-
-  prevent_ice_formation: false       # Optionally prevent ice
-
-  allow_snow_melting: true           # Allow existing snow to melt
 
 # ======= DEBUG AND LOGGING =======
 debug:
@@ -357,6 +373,8 @@ debug:
   # Weather system debug options (set to true only for troubleshooting)
   log_weather_transitions: false     # Weather changes between periods
   log_weather_applications: false   # When weather is applied to worlds
+  log_snow_prevention: false        # Log when snow placement is prevented
+  log_weather_interference: false   # Log when vanilla weather is blocked
 
 # ======= NOTIFICATIONS (OPTIMIZED) =======
 notifications:
@@ -366,6 +384,8 @@ notifications:
   temperature_warnings: true
   wind_event_notifications: false     # Disabled to reduce spam
   weather_progression_notifications: true
+  blizzard_messages: true             # NEW: Blizzard notifications
+  sandstorm_messages: true            # NEW: Sandstorm notifications
 
 # ======= COMPATIBILITY =======
 compatibility:
