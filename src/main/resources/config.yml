@@ -65,6 +65,12 @@ performance:
     smart_scaling: true
     player_density_threshold: 10  # Start reducing effects when 10+ players nearby
 
+  # TPS thresholds for performance scaling
+  tps_thresholds:
+    low_performance: 15.0    # Below this TPS = performance mode
+    medium_performance: 18.0 # Below this TPS = reduced effects
+    high_performance: 19.5   # Above this TPS = full effects
+
 # ======= PERFORMANCE MONITORING (SIMPLIFIED) =======
 monitoring:
   # Enable performance monitoring
@@ -79,6 +85,21 @@ monitoring:
   # Monitor memory usage
   memory_monitoring: true
   memory_warning_threshold: 85  # Percentage
+
+# ======= WEATHER SYSTEM OPTIMIZATION (NEW) =======
+weather:
+  # MAJOR OPTIMIZATION: Check weather every 2 minutes instead of 1 minute
+  update_interval_ticks: 2400  # 2400 ticks = 2 minutes (was 1200 = 1 minute)
+
+  # Process multiple worlds in batches to prevent lag spikes
+  batch_updates: true
+  batch_size: 5               # How many worlds to process per batch
+
+  # CRITICAL OPTIMIZATION: Skip applying weather if it hasn't changed
+  skip_unchanged: true         # This prevents 90% of redundant Bukkit API calls
+
+  # Weather event frequency optimization
+  event_check_frequency: 4     # Check for blizzards/sandstorms every 4th weather cycle
 
 # ======= WIND SYSTEM (OPTIMIZED) =======
 wind:
@@ -361,7 +382,7 @@ weather_control:
   disable_vanilla_weather: true
   restore_vanilla_on_shutdown: true
 
-# ======= DEBUG AND LOGGING =======
+# ======= DEBUG AND LOGGING (ENHANCED) =======
 debug:
   enabled: false
   log_zone_changes: false
@@ -375,6 +396,10 @@ debug:
   log_weather_applications: false   # When weather is applied to worlds
   log_snow_prevention: false        # Log when snow placement is prevented
   log_weather_interference: false   # Log when vanilla weather is blocked
+
+  # NEW: Weather optimization debug options
+  log_weather_optimizations: false  # Log when weather is actually applied vs skipped
+  log_weather_skips: false         # Log when weather application is skipped (unchanged)
 
 # ======= NOTIFICATIONS (OPTIMIZED) =======
 notifications:

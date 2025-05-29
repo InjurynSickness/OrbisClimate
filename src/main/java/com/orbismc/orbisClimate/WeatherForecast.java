@@ -79,6 +79,7 @@ public class WeatherForecast {
     public static class WorldWeatherState {
         private WeatherType currentWeather;
         private WeatherType targetWeather;
+        private WeatherType lastAppliedWeather;
         private long weatherStartTime;
         private boolean weatherLocked;
         private long lastWeatherUpdate;
@@ -86,6 +87,7 @@ public class WeatherForecast {
         public WorldWeatherState() {
             this.currentWeather = WeatherType.CLEAR;
             this.targetWeather = WeatherType.CLEAR;
+            this.lastAppliedWeather = null;
             this.weatherStartTime = System.currentTimeMillis();
             this.weatherLocked = false;
             this.lastWeatherUpdate = 0;
@@ -96,6 +98,8 @@ public class WeatherForecast {
         public void setCurrentWeather(WeatherType weather) { this.currentWeather = weather; }
         public WeatherType getTargetWeather() { return targetWeather; }
         public void setTargetWeather(WeatherType weather) { this.targetWeather = weather; }
+        public WeatherType getLastAppliedWeather() { return lastAppliedWeather; }
+        public void setLastAppliedWeather(WeatherType weather) { this.lastAppliedWeather = weather; }
         public long getWeatherStartTime() { return weatherStartTime; }
         public void setWeatherStartTime(long time) { this.weatherStartTime = time; }
         public boolean isWeatherLocked() { return weatherLocked; }
@@ -273,7 +277,7 @@ public class WeatherForecast {
         return WeatherType.SANDSTORM;
     }
 
-    // UPDATED: Modified weather application to prevent snow placement
+    // OPTIMIZED: Modified weather application to prevent redundant API calls
     private void updateCurrentWeather(World world) {
         DailyForecast forecast = worldForecasts.get(world);
         if (forecast == null) return;
@@ -298,8 +302,18 @@ public class WeatherForecast {
             changeWeather(world, state, targetWeather);
         }
 
-        // Ensure current weather is properly applied
-        applyWeatherToWorld(world, state.getCurrentWeather());
+        // OPTIMIZATION: Only apply weather if it has actually changed
+        WeatherType currentWeather = state.getCurrentWeather();
+        if (currentWeather != state.getLastAppliedWeather()) {
+            applyWeatherToWorld(world, currentWeather);
+            state.setLastAppliedWeather(currentWeather);
+            
+            if (plugin.getConfig().getBoolean("debug.log_weather_optimizations", false)) {
+                plugin.getLogger().info("Applied weather " + currentWeather.getDisplayName() + 
+                    " to " + world.getName() + " (was " + 
+                    (state.getLastAppliedWeather() != null ? state.getLastAppliedWeather().getDisplayName() : "null") + ")");
+            }
+        }
     }
 
     private void changeWeather(World world, WorldWeatherState state, WeatherType newWeather) {
@@ -312,8 +326,9 @@ public class WeatherForecast {
         state.setCurrentWeather(newWeather);
         state.setWeatherStartTime(System.currentTimeMillis());
 
-        // Apply the weather immediately
+        // Apply the weather immediately and mark as applied
         applyWeatherToWorld(world, newWeather);
+        state.setLastAppliedWeather(newWeather);
 
         // Notify players
         notifyPlayersOfWeatherChange(world, newWeather);
@@ -427,6 +442,7 @@ public class WeatherForecast {
         WorldWeatherState state = worldWeatherStates.get(world);
         if (state != null) {
             state.setTargetWeather(WeatherType.CLEAR); // Force recalculation
+            state.setLastAppliedWeather(null); // Force reapplication
         }
         updateCurrentWeather(world);
     }
@@ -439,8 +455,10 @@ public class WeatherForecast {
         state.setTargetWeather(weather);
         state.setWeatherLocked(true);
         state.setWeatherStartTime(System.currentTimeMillis());
+        state.setLastAppliedWeather(null); // Force reapplication
         
         applyWeatherToWorld(world, weather);
+        state.setLastAppliedWeather(weather);
         
         plugin.getLogger().info("Manual weather override: " + world.getName() + 
             " set to " + weather.getDisplayName() + " for " + durationMinutes + " minutes");
@@ -456,8 +474,28 @@ public class WeatherForecast {
         WorldWeatherState state = worldWeatherStates.get(world);
         if (state != null) {
             state.setWeatherLocked(false);
+            state.setLastAppliedWeather(null); // Force weather recalculation
             plugin.getLogger().info("Weather lock cleared for " + world.getName());
         }
+    }
+
+    // Performance monitoring methods
+    public boolean hasWeatherChanged(World world) {
+        WorldWeatherState state = worldWeatherStates.get(world);
+        if (state == null) return true; // No state = needs initial setup
+        
+        return state.getCurrentWeather() != state.getLastAppliedWeather();
+    }
+
+    public String getWeatherDebugInfo(World world) {
+        WorldWeatherState state = worldWeatherStates.get(world);
+        if (state == null) return "No weather state for " + world.getName();
+        
+        return String.format("World: %s | Current: %s | Last Applied: %s | Locked: %s", 
+            world.getName(),
+            state.getCurrentWeather().getDisplayName(),
+            state.getLastAppliedWeather() != null ? state.getLastAppliedWeather().getDisplayName() : "None",
+            state.isWeatherLocked());
     }
 
     public boolean isRealisticSeasonsEnabled() {

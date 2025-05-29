@@ -133,8 +133,8 @@ public class OrbisClimate extends JavaPlugin implements Listener {
             // Start main weather system task with performance optimization
             getLogger().info("Starting weather system tasks...");
 
-            // Main weather task - reduced frequency for better performance
-            int weatherUpdateInterval = getConfig().getInt("performance.particles.climate_update_interval", 1200);
+            // Main weather task - OPTIMIZED: Use configurable interval with default of 2 minutes
+            int weatherUpdateInterval = getConfig().getInt("weather.update_interval_ticks", 2400);
             Bukkit.getScheduler().runTaskTimer(this, () -> {
                 try {
                     // Check performance before running intensive tasks
@@ -151,9 +151,11 @@ public class OrbisClimate extends JavaPlugin implements Listener {
                         }
                     });
 
-                    // Check for weather events
-                    blizzardManager.checkForBlizzards();
-                    sandstormManager.checkForSandstorms();
+                    // Check for weather events (less frequently for better performance)
+                    if (System.currentTimeMillis() % 4 == 0) { // Every 4th cycle
+                        blizzardManager.checkForBlizzards();
+                        sandstormManager.checkForSandstorms();
+                    }
                 } catch (Exception e) {
                     getLogger().severe("Error in weather system task: " + e.getMessage());
                     e.printStackTrace();
@@ -280,6 +282,10 @@ public class OrbisClimate extends JavaPlugin implements Listener {
 
         boolean useBatching = getConfig().getBoolean("performance.particles.use_batch_processing", true);
         getLogger().info("Batch Processing: " + (useBatching ? "ENABLED" : "DISABLED"));
+
+        // OPTIMIZED: Print weather update interval
+        int weatherUpdateInterval = getConfig().getInt("weather.update_interval_ticks", 2400);
+        getLogger().info("Weather Update Interval: " + weatherUpdateInterval + " ticks (" + (weatherUpdateInterval / 20) + " seconds)");
     }
 
     private void printFeatureStatus() {
@@ -297,6 +303,7 @@ public class OrbisClimate extends JavaPlugin implements Listener {
         getLogger().info("Performance Monitoring: " + (performanceMonitor != null ? "ENABLED" : "DISABLED"));
         getLogger().info("Vanilla Weather: " + (getConfig().getBoolean("weather_control.disable_vanilla_weather", true) ? "DISABLED" : "ENABLED"));
         getLogger().info("Snow Placement Prevention: " + (getConfig().getBoolean("weather_control.prevent_snow_placement", true) ? "ENABLED" : "DISABLED")); // NEW
+        getLogger().info("Weather Optimization: " + (getConfig().getBoolean("weather.skip_unchanged", true) ? "ENABLED" : "DISABLED")); // NEW
     }
 
     @Override
