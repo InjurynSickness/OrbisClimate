@@ -37,81 +37,101 @@ public class WeatherForecast {
         public int getThunderIntensity() { return thunderIntensity; }
     }
 
-    public static class DailyForecast {
-        private final WeatherType morningWeather;
-        private final WeatherType afternoonWeather;
-        private final WeatherType eveningWeather;
-        private final WeatherType nightWeather;
+    // Enhanced forecast that includes exact timing and transitions
+    public static class DetailedForecast {
         private final Date date;
         private final Season season;
+        private final Map<Integer, WeatherType> hourlyWeather; // Hour -> Weather mapping
+        private final Map<Integer, Boolean> transitionHours; // Hours where transitions occur
+        private final String forecastId;
 
-        public DailyForecast(Date date, Season season, WeatherType morning, WeatherType afternoon,
-                             WeatherType evening, WeatherType night) {
+        public DetailedForecast(Date date, Season season) {
             this.date = date;
             this.season = season;
-            this.morningWeather = morning;
-            this.afternoonWeather = afternoon;
-            this.eveningWeather = evening;
-            this.nightWeather = night;
+            this.hourlyWeather = new HashMap<>();
+            this.transitionHours = new HashMap<>();
+            this.forecastId = generateForecastId(date);
         }
 
-        public WeatherType getCurrentWeather(int hour) {
-            if (hour >= 6 && hour < 12) {
-                return morningWeather;
-            } else if (hour >= 12 && hour < 18) {
-                return afternoonWeather;
-            } else if (hour >= 18 && hour < 24) {
-                return eveningWeather;
-            } else {
-                return nightWeather;
+        private String generateForecastId(Date date) {
+            if (date != null) {
+                return date.getYear() + "-" + date.getMonth() + "-" + date.getDay();
             }
+            return "vanilla-" + System.currentTimeMillis() / 86400000; // Day number
+        }
+
+        public void setWeatherForHour(int hour, WeatherType weather) {
+            hourlyWeather.put(hour, weather);
+        }
+
+        public void setTransitionHour(int hour, boolean isTransition) {
+            transitionHours.put(hour, isTransition);
+        }
+
+        public WeatherType getWeatherForHour(int hour) {
+            return hourlyWeather.getOrDefault(hour, WeatherType.CLEAR);
+        }
+
+        public boolean isTransitionHour(int hour) {
+            return transitionHours.getOrDefault(hour, false);
         }
 
         public Date getDate() { return date; }
         public Season getSeason() { return season; }
-        public WeatherType getMorningWeather() { return morningWeather; }
-        public WeatherType getAfternoonWeather() { return afternoonWeather; }
-        public WeatherType getEveningWeather() { return eveningWeather; }
-        public WeatherType getNightWeather() { return nightWeather; }
+        public String getForecastId() { return forecastId; }
+
+        // Legacy compatibility methods
+        public WeatherType getMorningWeather() { return getWeatherForHour(9); }
+        public WeatherType getAfternoonWeather() { return getWeatherForHour(15); }
+        public WeatherType getEveningWeather() { return getWeatherForHour(21); }
+        public WeatherType getNightWeather() { return getWeatherForHour(3); }
+
+        public WeatherType getCurrentWeather(int hour) {
+            return getWeatherForHour(hour);
+        }
     }
 
-    // Weather state management per world
+    // Simplified world weather state - just tracks what the forecast says
     public static class WorldWeatherState {
         private WeatherType currentWeather;
-        private WeatherType targetWeather;
         private WeatherType lastAppliedWeather;
-        private long weatherStartTime;
         private boolean weatherLocked;
-        private long lastWeatherUpdate;
+        private long lockExpirationTime;
+        private String activeForecastId;
+        private int lastProcessedHour;
 
         public WorldWeatherState() {
             this.currentWeather = WeatherType.CLEAR;
-            this.targetWeather = WeatherType.CLEAR;
             this.lastAppliedWeather = null;
-            this.weatherStartTime = System.currentTimeMillis();
             this.weatherLocked = false;
-            this.lastWeatherUpdate = 0;
+            this.lockExpirationTime = 0;
+            this.activeForecastId = null;
+            this.lastProcessedHour = -1;
         }
 
         // Getters and setters
         public WeatherType getCurrentWeather() { return currentWeather; }
         public void setCurrentWeather(WeatherType weather) { this.currentWeather = weather; }
-        public WeatherType getTargetWeather() { return targetWeather; }
-        public void setTargetWeather(WeatherType weather) { this.targetWeather = weather; }
         public WeatherType getLastAppliedWeather() { return lastAppliedWeather; }
         public void setLastAppliedWeather(WeatherType weather) { this.lastAppliedWeather = weather; }
-        public long getWeatherStartTime() { return weatherStartTime; }
-        public void setWeatherStartTime(long time) { this.weatherStartTime = time; }
-        public boolean isWeatherLocked() { return weatherLocked; }
-        public void setWeatherLocked(boolean locked) { this.weatherLocked = locked; }
-        public long getLastWeatherUpdate() { return lastWeatherUpdate; }
-        public void setLastWeatherUpdate(long time) { this.lastWeatherUpdate = time; }
+        public boolean isWeatherLocked() { return weatherLocked && System.currentTimeMillis() < lockExpirationTime; }
+        public void setWeatherLocked(boolean locked, long durationMs) { 
+            this.weatherLocked = locked; 
+            this.lockExpirationTime = System.currentTimeMillis() + durationMs;
+        }
+        public void clearWeatherLock() { 
+            this.weatherLocked = false; 
+            this.lockExpirationTime = 0; 
+        }
+        public String getActiveForecastId() { return activeForecastId; }
+        public void setActiveForecastId(String forecastId) { this.activeForecastId = forecastId; }
+        public int getLastProcessedHour() { return lastProcessedHour; }
+        public void setLastProcessedHour(int hour) { this.lastProcessedHour = hour; }
     }
 
     private final OrbisClimate plugin;
     private final Random random;
-    private final Map<World, DailyForecast> worldForecasts = new HashMap<>();
-    private final Map<World, String> lastCheckedDate = new HashMap<>();
+    private final Map<World, DetailedForecast> worldForecasts = new HashMap<>();
     private final Map<World, WorldWeatherState> worldWeatherStates = new HashMap<>();
     private SeasonsAPI seasonsAPI;
     private boolean realisticSeasonsEnabled = false;
@@ -125,46 +145,50 @@ public class WeatherForecast {
             try {
                 seasonsAPI = SeasonsAPI.getInstance();
                 realisticSeasonsEnabled = true;
-                plugin.getLogger().info("RealisticSeasons integration enabled!");
+                plugin.getLogger().info("RealisticSeasons integration enabled - forecast will follow RealisticSeasons time!");
             } catch (Exception e) {
                 plugin.getLogger().warning("RealisticSeasons is installed but API is not available: " + e.getMessage());
                 realisticSeasonsEnabled = false;
             }
         } else {
-            plugin.getLogger().info("RealisticSeasons not found, using vanilla time system");
+            plugin.getLogger().info("RealisticSeasons not found, using vanilla time system for forecast");
             realisticSeasonsEnabled = false;
         }
     }
 
     public void checkAndUpdateForecast(World world) {
-        String currentDateKey = getCurrentDateKey(world);
-        String lastDateKey = lastCheckedDate.get(world);
-
-        // Check if we need to generate a new forecast
-        if (lastDateKey == null || !currentDateKey.equals(lastDateKey)) {
-            generateDailyForecast(world);
-            lastCheckedDate.put(world, currentDateKey);
-
-            if (lastDateKey != null) {
-                announceDailyForecast(world);
-            }
+        WorldWeatherState state = worldWeatherStates.computeIfAbsent(world, k -> new WorldWeatherState());
+        
+        // Check if forecast needs regeneration
+        boolean needsNewForecast = false;
+        String currentForecastId = generateCurrentForecastId(world);
+        
+        DetailedForecast currentForecast = worldForecasts.get(world);
+        if (currentForecast == null || !currentForecastId.equals(currentForecast.getForecastId())) {
+            needsNewForecast = true;
         }
 
-        // Apply current weather based on forecast
-        updateCurrentWeather(world);
+        // Generate new forecast if needed
+        if (needsNewForecast) {
+            generateDetailedForecast(world);
+            announceDailyForecast(world);
+        }
+
+        // Apply weather strictly according to forecast
+        applyForecastWeather(world, state);
     }
 
-    private String getCurrentDateKey(World world) {
+    private String generateCurrentForecastId(World world) {
         if (realisticSeasonsEnabled) {
             Date date = seasonsAPI.getDate(world);
             return date.getYear() + "-" + date.getMonth() + "-" + date.getDay();
         } else {
             long currentDay = world.getFullTime() / 24000;
-            return String.valueOf(currentDay);
+            return "vanilla-" + currentDay;
         }
     }
 
-    private void generateDailyForecast(World world) {
+    private void generateDetailedForecast(World world) {
         Date currentDate = null;
         Season currentSeason = null;
 
@@ -173,70 +197,193 @@ public class WeatherForecast {
             currentSeason = seasonsAPI.getSeason(world);
         }
 
-        // Generate weather for each time period
-        WeatherType morning = generateWeatherType(currentSeason);
-        WeatherType afternoon = generateWeatherType(currentSeason, morning);
-        WeatherType evening = generateWeatherType(currentSeason, afternoon);
-        WeatherType night = generateWeatherType(currentSeason, evening);
-
-        DailyForecast forecast = new DailyForecast(currentDate, currentSeason, morning, afternoon, evening, night);
+        DetailedForecast forecast = new DetailedForecast(currentDate, currentSeason);
+        
+        // Generate hour-by-hour weather for the entire day
+        WeatherType[] periodWeather = generatePeriodWeather(currentSeason);
+        
+        // Map periods to hours with transitions
+        mapPeriodsToHours(forecast, periodWeather);
+        
         worldForecasts.put(world, forecast);
 
-        String dateStr = realisticSeasonsEnabled ?
+        String dateStr = realisticSeasonsEnabled && currentDate != null ?
                 currentDate.getMonth() + "/" + currentDate.getDay() + "/" + currentDate.getYear() :
-                getCurrentDateKey(world);
-        String seasonStr = realisticSeasonsEnabled ? currentSeason.toString() : "N/A";
+                generateCurrentForecastId(world);
+        String seasonStr = realisticSeasonsEnabled && currentSeason != null ? 
+                currentSeason.toString() : "N/A";
+        
+        plugin.getLogger().info("Generated detailed forecast for " + world.getName() + 
+            " (" + dateStr + ", " + seasonStr + ")");
+        
+        if (plugin.getConfig().getBoolean("debug.log_weather_transitions", false)) {
+            logDetailedForecast(world, forecast);
+        }
     }
 
-    private WeatherType generateWeatherType(Season season) {
-        return generateWeatherType(season, null);
+    private WeatherType[] generatePeriodWeather(Season season) {
+        // Generate 4 period weather types with better continuity
+        WeatherType[] periods = new WeatherType[4]; // Morning, Afternoon, Evening, Night
+        
+        // Morning weather
+        periods[0] = generateWeatherType(season, null, 0.0);
+        
+        // Afternoon weather (high continuity from morning)
+        periods[1] = generateWeatherType(season, periods[0], 0.7);
+        
+        // Evening weather (medium continuity from afternoon)
+        periods[2] = generateWeatherType(season, periods[1], 0.5);
+        
+        // Night weather (lower continuity, but consider morning for next day)
+        periods[3] = generateWeatherType(season, periods[2], 0.3);
+        
+        return periods;
     }
 
-    private WeatherType generateWeatherType(Season season, WeatherType previousWeather) {
+    private void mapPeriodsToHours(DetailedForecast forecast, WeatherType[] periodWeather) {
+        // Map each hour to a weather type and mark transition hours
+        
+        // Night (0-5): Use night weather
+        for (int hour = 0; hour <= 5; hour++) {
+            forecast.setWeatherForHour(hour, periodWeather[3]); // Night
+        }
+        
+        // Morning transition (6): Transition from night to morning
+        forecast.setWeatherForHour(6, periodWeather[0]); // Morning
+        forecast.setTransitionHour(6, !periodWeather[3].equals(periodWeather[0]));
+        
+        // Morning (7-11): Morning weather
+        for (int hour = 7; hour <= 11; hour++) {
+            forecast.setWeatherForHour(hour, periodWeather[0]); // Morning
+        }
+        
+        // Afternoon transition (12): Transition from morning to afternoon
+        forecast.setWeatherForHour(12, periodWeather[1]); // Afternoon
+        forecast.setTransitionHour(12, !periodWeather[0].equals(periodWeather[1]));
+        
+        // Afternoon (13-17): Afternoon weather
+        for (int hour = 13; hour <= 17; hour++) {
+            forecast.setWeatherForHour(hour, periodWeather[1]); // Afternoon
+        }
+        
+        // Evening transition (18): Transition from afternoon to evening
+        forecast.setWeatherForHour(18, periodWeather[2]); // Evening
+        forecast.setTransitionHour(18, !periodWeather[1].equals(periodWeather[2]));
+        
+        // Evening (19-23): Evening weather
+        for (int hour = 19; hour <= 23; hour++) {
+            forecast.setWeatherForHour(hour, periodWeather[2]); // Evening
+        }
+        
+        // Note: Night transition happens at hour 0 of next day
+    }
+
+    private void logDetailedForecast(World world, DetailedForecast forecast) {
+        plugin.getLogger().info("Detailed 24-hour forecast for " + world.getName() + ":");
+        for (int hour = 0; hour < 24; hour++) {
+            WeatherType weather = forecast.getWeatherForHour(hour);
+            boolean isTransition = forecast.isTransitionHour(hour);
+            String transitionMarker = isTransition ? " [TRANSITION]" : "";
+            plugin.getLogger().info("  " + String.format("%02d", hour) + ":00 - " + 
+                weather.getDisplayName() + transitionMarker);
+        }
+    }
+
+    private void applyForecastWeather(World world, WorldWeatherState state) {
+        // Check if weather is manually locked
+        if (state.isWeatherLocked()) {
+            return;
+        }
+
+        DetailedForecast forecast = worldForecasts.get(world);
+        if (forecast == null) return;
+
+        int currentHour = getCurrentHour(world);
+        
+        // Get the weather that the forecast says should be active right now
+        WeatherType forecastWeather = forecast.getWeatherForHour(currentHour);
+        boolean isTransitionHour = forecast.isTransitionHour(currentHour);
+        
+        // Check if hour has changed or weather needs to be updated
+        boolean hourChanged = state.getLastProcessedHour() != currentHour;
+        boolean weatherChanged = !forecastWeather.equals(state.getCurrentWeather());
+        
+        if (hourChanged || weatherChanged) {
+            state.setLastProcessedHour(currentHour);
+            
+            if (weatherChanged) {
+                // Weather is changing according to forecast
+                WeatherType previousWeather = state.getCurrentWeather();
+                state.setCurrentWeather(forecastWeather);
+                
+                if (plugin.getConfig().getBoolean("debug.log_weather_transitions", false)) {
+                    String transitionInfo = isTransitionHour ? " (forecast transition hour)" : "";
+                    plugin.getLogger().info("Forecast weather change in " + world.getName() + 
+                        " at hour " + currentHour + ": " + previousWeather.getDisplayName() + 
+                        " -> " + forecastWeather.getDisplayName() + transitionInfo);
+                }
+                
+                // Notify players if this is a transition hour
+                if (isTransitionHour) {
+                    notifyPlayersOfWeatherTransition(world, previousWeather, forecastWeather);
+                }
+            }
+        }
+
+        // Apply the current forecast weather to the world
+        if (!forecastWeather.equals(state.getLastAppliedWeather())) {
+            applyWeatherToWorld(world, forecastWeather);
+            state.setLastAppliedWeather(forecastWeather);
+        }
+    }
+
+    private WeatherType generateWeatherType(Season season, WeatherType previousWeather, double continuityChance) {
+        // Check continuity first
+        if (previousWeather != null && random.nextDouble() < continuityChance) {
+            return previousWeather;
+        }
+
+        // Generate new weather based on season
         double roll = random.nextDouble() * 100.0;
 
-        double clearChance = 40.0;
-        double lightPrecipChance = 30.0;
-        double heavyPrecipChance = 20.0;
+        // Season-based weather probabilities
+        double clearChance = 45.0;
+        double lightPrecipChance = 25.0;
+        double heavyPrecipChance = 15.0;
         double stormChance = 10.0;
-        double sandstormChance = 5.0;
+        double specialChance = 5.0; // Snow/sandstorm
 
         if (season != null) {
             switch (season) {
                 case WINTER:
-                    clearChance = 20.0;
-                    lightPrecipChance = 40.0;
-                    heavyPrecipChance = 30.0;
+                    clearChance = 25.0;
+                    lightPrecipChance = 30.0;
+                    heavyPrecipChance = 25.0;
                     stormChance = 10.0;
-                    sandstormChance = 2.0;
+                    specialChance = 10.0;
                     break;
                 case SPRING:
+                    clearChance = 40.0;
+                    lightPrecipChance = 35.0;
+                    heavyPrecipChance = 15.0;
+                    stormChance = 8.0;
+                    specialChance = 2.0;
+                    break;
+                case SUMMER:
+                    clearChance = 55.0;
+                    lightPrecipChance = 15.0;
+                    heavyPrecipChance = 10.0;
+                    stormChance = 15.0;
+                    specialChance = 5.0;
+                    break;
+                case FALL:
                     clearChance = 35.0;
                     lightPrecipChance = 35.0;
                     heavyPrecipChance = 20.0;
-                    stormChance = 10.0;
-                    sandstormChance = 5.0;
-                    break;
-                case SUMMER:
-                    clearChance = 50.0;
-                    lightPrecipChance = 20.0;
-                    heavyPrecipChance = 10.0;
-                    stormChance = 10.0;
-                    sandstormChance = 15.0;
-                    break;
-                case FALL:
-                    clearChance = 30.0;
-                    lightPrecipChance = 40.0;
-                    heavyPrecipChance = 25.0;
-                    stormChance = 5.0;
-                    sandstormChance = 3.0;
+                    stormChance = 8.0;
+                    specialChance = 2.0;
                     break;
             }
-        }
-
-        // Add continuity with previous weather
-        if (previousWeather != null && random.nextDouble() < 0.3) {
-            return previousWeather;
         }
 
         double cumulative = 0;
@@ -248,10 +395,8 @@ public class WeatherForecast {
 
         cumulative += lightPrecipChance;
         if (roll < cumulative) {
-            if (season == Season.WINTER && random.nextDouble() < 0.7) {
+            if (season == Season.WINTER && random.nextDouble() < 0.6) {
                 return WeatherType.SNOW;
-            } else if (season == Season.SUMMER && random.nextDouble() < 0.3) {
-                return WeatherType.SANDSTORM;
             }
             return WeatherType.LIGHT_RAIN;
         }
@@ -260,146 +405,86 @@ public class WeatherForecast {
         if (roll < cumulative) {
             if (season == Season.WINTER && random.nextDouble() < 0.4) {
                 return WeatherType.BLIZZARD;
-            } else if (season == Season.SUMMER && random.nextDouble() < 0.2) {
-                return WeatherType.SANDSTORM;
             }
             return WeatherType.HEAVY_RAIN;
         }
 
         cumulative += stormChance;
         if (roll < cumulative) {
-            if (season == Season.WINTER && random.nextDouble() < 0.7) {
+            if (season == Season.WINTER && random.nextDouble() < 0.5) {
                 return WeatherType.BLIZZARD;
             }
             return WeatherType.THUNDERSTORM;
         }
 
-        return WeatherType.SANDSTORM;
+        // Special weather
+        if (season == Season.SUMMER && random.nextDouble() < 0.7) {
+            return WeatherType.SANDSTORM;
+        }
+        return WeatherType.SNOW;
     }
 
-    // OPTIMIZED: Modified weather application to prevent redundant API calls
-    private void updateCurrentWeather(World world) {
-        DailyForecast forecast = worldForecasts.get(world);
-        if (forecast == null) return;
-
-        // Check if weather is manually locked by admin
-        WorldWeatherState state = worldWeatherStates.get(world);
-        if (state != null && state.isWeatherLocked()) {
-            // Don't change weather if it's been manually set
-            return;
-        }
-
-        int currentHour = getCurrentHour(world);
-        WeatherType targetWeather = forecast.getCurrentWeather(currentHour);
-
-        if (state == null) {
-            state = new WorldWeatherState();
-            worldWeatherStates.put(world, state);
-        }
-
-        // Check if weather should change
-        if (state.getTargetWeather() != targetWeather) {
-            changeWeather(world, state, targetWeather);
-        }
-
-        // OPTIMIZATION: Only apply weather if it has actually changed
-        WeatherType currentWeather = state.getCurrentWeather();
-        if (currentWeather != state.getLastAppliedWeather()) {
-            applyWeatherToWorld(world, currentWeather);
-            state.setLastAppliedWeather(currentWeather);
-            
-            if (plugin.getConfig().getBoolean("debug.log_weather_optimizations", false)) {
-                plugin.getLogger().info("Applied weather " + currentWeather.getDisplayName() + 
-                    " to " + world.getName() + " (was " + 
-                    (state.getLastAppliedWeather() != null ? state.getLastAppliedWeather().getDisplayName() : "null") + ")");
-            }
-        }
-    }
-
-    private void changeWeather(World world, WorldWeatherState state, WeatherType newWeather) {
-        if (plugin.getConfig().getBoolean("debug.log_weather_transitions", false)) {
-            plugin.getLogger().info("Weather changing in " + world.getName() + " from " + 
-                state.getCurrentWeather().getDisplayName() + " to " + newWeather.getDisplayName());
-        }
-
-        state.setTargetWeather(newWeather);
-        state.setCurrentWeather(newWeather);
-        state.setWeatherStartTime(System.currentTimeMillis());
-
-        // Apply the weather immediately and mark as applied
-        applyWeatherToWorld(world, newWeather);
-        state.setLastAppliedWeather(newWeather);
-
-        // Notify players
-        notifyPlayersOfWeatherChange(world, newWeather);
-    }
-
-    // UPDATED: Modified to prevent snow placement while keeping visual effects
     private void applyWeatherToWorld(World world, WeatherType weather) {
         boolean shouldRain = weather.getRainIntensity() > 0;
         boolean shouldThunder = weather.getThunderIntensity() > 0;
 
-        // IMPORTANT: For snow/blizzard, we DON'T want to use the storm system
-        // because that places actual snow blocks. Instead, we handle this purely
-        // through our particle effects in BlizzardManager
+        // For snow/blizzard, use particle effects only (no vanilla snow placement)
         if (weather == WeatherType.SNOW || weather == WeatherType.BLIZZARD) {
-            // Force clear weather in Minecraft but let our particle systems handle the visuals
             world.setStorm(false);
             world.setThundering(false);
-            world.setWeatherDuration(Integer.MAX_VALUE); // Prevent vanilla weather
+            world.setWeatherDuration(Integer.MAX_VALUE);
             world.setThunderDuration(0);
         } else {
-            // Handle rain and thunder normally
             world.setStorm(shouldRain);
             world.setThundering(shouldThunder);
             
             if (shouldRain) {
-                world.setWeatherDuration(Integer.MAX_VALUE); // We control duration, not vanilla
+                world.setWeatherDuration(Integer.MAX_VALUE);
             } else {
                 world.setWeatherDuration(0);
             }
             
             if (shouldThunder) {
-                world.setThunderDuration(Integer.MAX_VALUE); // We control duration, not vanilla
+                world.setThunderDuration(Integer.MAX_VALUE);
             } else {
                 world.setThunderDuration(0);
             }
         }
 
-        // Optional debug logging
         if (plugin.getConfig().getBoolean("debug.log_weather_applications", false)) {
-            if (weather == WeatherType.SNOW || weather == WeatherType.BLIZZARD) {
-                plugin.getLogger().info("Set weather " + weather.getDisplayName() + 
-                    " for " + world.getName() + " - Using particle effects only (no snow blocks)");
-            } else {
-                plugin.getLogger().info("Set weather " + weather.getDisplayName() + 
-                    " for " + world.getName() + " - Storm: " + shouldRain + " | Thunder: " + shouldThunder);
-            }
+            plugin.getLogger().info("Applied forecast weather " + weather.getDisplayName() + 
+                " to " + world.getName() + " - Storm: " + shouldRain + " | Thunder: " + shouldThunder);
         }
     }
 
-    private void notifyPlayersOfWeatherChange(World world, WeatherType newWeather) {
+    private void notifyPlayersOfWeatherTransition(World world, WeatherType from, WeatherType to) {
+        if (!plugin.getConfig().getBoolean("notifications.weather_transition_notifications", true)) {
+            return;
+        }
+        
         for (Player player : world.getPlayers()) {
             if (player.hasPermission("orbisclimate.notifications")) {
-                player.sendMessage("§6[OrbisClimate] §7Weather changing to: §f" + newWeather.getDisplayName());
+                player.sendMessage("§6[OrbisClimate] §7Weather changing: §f" + 
+                    from.getDisplayName() + " §7→ §f" + to.getDisplayName());
             }
         }
     }
 
-    private int getCurrentHour(World world) {
+    public int getCurrentHour(World world) {
         if (realisticSeasonsEnabled) {
             return seasonsAPI.getHours(world);
         } else {
+            // Convert Minecraft time to hour (0-23)
             long timeOfDay = world.getTime() % 24000;
             return (int) ((timeOfDay + 6000) / 1000) % 24;
         }
     }
 
     private void announceDailyForecast(World world) {
-        DailyForecast forecast = worldForecasts.get(world);
+        DetailedForecast forecast = worldForecasts.get(world);
         if (forecast == null) return;
 
-        String dateStr = "Day " + getCurrentDateKey(world);
+        String dateStr = forecast.getForecastId();
         String seasonStr = "";
 
         if (realisticSeasonsEnabled && forecast.getDate() != null) {
@@ -419,8 +504,36 @@ public class WeatherForecast {
         }
     }
 
-    public DailyForecast getForecast(World world) {
+    // Public interface methods
+    public DetailedForecast getForecast(World world) {
         return worldForecasts.get(world);
+    }
+    
+    // Backward compatibility method for DailyForecast interface
+    public DailyForecast getDailyForecast(World world) {
+        DetailedForecast detailed = worldForecasts.get(world);
+        if (detailed == null) return null;
+        return new DailyForecast(detailed);
+    }
+    
+    // Wrapper class for backward compatibility
+    public static class DailyForecast {
+        private final DetailedForecast detailed;
+        
+        public DailyForecast(DetailedForecast detailed) {
+            this.detailed = detailed;
+        }
+        
+        public WeatherType getMorningWeather() { return detailed.getMorningWeather(); }
+        public WeatherType getAfternoonWeather() { return detailed.getAfternoonWeather(); }
+        public WeatherType getEveningWeather() { return detailed.getEveningWeather(); }
+        public WeatherType getNightWeather() { return detailed.getNightWeather(); }
+        public Date getDate() { return detailed.getDate(); }
+        public Season getSeason() { return detailed.getSeason(); }
+        
+        public WeatherType getCurrentWeather(int hour) {
+            return detailed.getCurrentWeather(hour);
+        }
     }
 
     public WeatherType getCurrentWeather(World world) {
@@ -429,75 +542,50 @@ public class WeatherForecast {
             return state.getCurrentWeather();
         }
 
-        DailyForecast forecast = worldForecasts.get(world);
+        DetailedForecast forecast = worldForecasts.get(world);
         if (forecast == null) return WeatherType.CLEAR;
-        return forecast.getCurrentWeather(getCurrentHour(world));
+        return forecast.getWeatherForHour(getCurrentHour(world));
     }
 
     public void regenerateForecast(World world) {
-        generateDailyForecast(world);
+        plugin.getLogger().info("Regenerating forecast for " + world.getName() + " (forced)");
+        generateDetailedForecast(world);
         announceDailyForecast(world);
         
-        // Force weather update
+        // Reset state to force immediate application
         WorldWeatherState state = worldWeatherStates.get(world);
         if (state != null) {
-            state.setTargetWeather(WeatherType.CLEAR); // Force recalculation
-            state.setLastAppliedWeather(null); // Force reapplication
+            state.setLastProcessedHour(-1);
+            state.setLastAppliedWeather(null);
         }
-        updateCurrentWeather(world);
     }
 
-    // Manual weather override (for admins)
+    // Manual weather override (for admins) - overrides forecast temporarily
     public void setWeather(World world, WeatherType weather, int durationMinutes) {
         WorldWeatherState state = worldWeatherStates.computeIfAbsent(world, k -> new WorldWeatherState());
         
         state.setCurrentWeather(weather);
-        state.setTargetWeather(weather);
-        state.setWeatherLocked(true);
-        state.setWeatherStartTime(System.currentTimeMillis());
-        state.setLastAppliedWeather(null); // Force reapplication
+        state.setWeatherLocked(true, durationMinutes * 60L * 1000L);
+        state.setLastAppliedWeather(null);
         
         applyWeatherToWorld(world, weather);
         state.setLastAppliedWeather(weather);
         
         plugin.getLogger().info("Manual weather override: " + world.getName() + 
-            " set to " + weather.getDisplayName() + " for " + durationMinutes + " minutes");
-
-        // Schedule unlock after duration
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            state.setWeatherLocked(false);
-            plugin.getLogger().info("Weather lock expired for " + world.getName());
-        }, durationMinutes * 60L * 20L); // Convert minutes to ticks
+            " set to " + weather.getDisplayName() + " for " + durationMinutes + " minutes (overriding forecast)");
     }
 
     public void clearWeatherLock(World world) {
         WorldWeatherState state = worldWeatherStates.get(world);
         if (state != null) {
-            state.setWeatherLocked(false);
-            state.setLastAppliedWeather(null); // Force weather recalculation
-            plugin.getLogger().info("Weather lock cleared for " + world.getName());
+            state.clearWeatherLock();
+            state.setLastAppliedWeather(null);
+            state.setLastProcessedHour(-1); // Force re-evaluation
+            plugin.getLogger().info("Weather lock cleared for " + world.getName() + " - returning to forecast");
         }
     }
 
-    // Performance monitoring methods
-    public boolean hasWeatherChanged(World world) {
-        WorldWeatherState state = worldWeatherStates.get(world);
-        if (state == null) return true; // No state = needs initial setup
-        
-        return state.getCurrentWeather() != state.getLastAppliedWeather();
-    }
-
-    public String getWeatherDebugInfo(World world) {
-        WorldWeatherState state = worldWeatherStates.get(world);
-        if (state == null) return "No weather state for " + world.getName();
-        
-        return String.format("World: %s | Current: %s | Last Applied: %s | Locked: %s", 
-            world.getName(),
-            state.getCurrentWeather().getDisplayName(),
-            state.getLastAppliedWeather() != null ? state.getLastAppliedWeather().getDisplayName() : "None",
-            state.isWeatherLocked());
-    }
-
+    // Integration getters
     public boolean isRealisticSeasonsEnabled() {
         return realisticSeasonsEnabled;
     }
@@ -516,16 +604,40 @@ public class WeatherForecast {
         return null;
     }
 
-    // Shutdown method - re-enable vanilla weather
+    // Debug and monitoring
+    public String getDetailedWeatherInfo(World world) {
+        DetailedForecast forecast = worldForecasts.get(world);
+        WorldWeatherState state = worldWeatherStates.get(world);
+        
+        if (forecast == null || state == null) {
+            return "No forecast data available for " + world.getName();
+        }
+        
+        int currentHour = getCurrentHour(world);
+        WeatherType forecastWeather = forecast.getWeatherForHour(currentHour);
+        boolean isTransitionHour = forecast.isTransitionHour(currentHour);
+        
+        StringBuilder info = new StringBuilder();
+        info.append("=== Weather Debug for ").append(world.getName()).append(" ===\n");
+        info.append("Current Hour: ").append(currentHour).append(":00\n");
+        info.append("Forecast ID: ").append(forecast.getForecastId()).append("\n");
+        info.append("Current Weather: ").append(state.getCurrentWeather().getDisplayName()).append("\n");
+        info.append("Forecast Weather: ").append(forecastWeather.getDisplayName()).append("\n");
+        info.append("Is Transition Hour: ").append(isTransitionHour).append("\n");
+        info.append("Weather Locked: ").append(state.isWeatherLocked()).append("\n");
+        info.append("Last Applied: ").append(state.getLastAppliedWeather() != null ? 
+            state.getLastAppliedWeather().getDisplayName() : "None").append("\n");
+        
+        return info.toString();
+    }
+
     public void shutdown() {
         worldWeatherStates.clear();
         worldForecasts.clear();
-        lastCheckedDate.clear();
         
-        // Re-enable vanilla weather when plugin shuts down
         if (plugin.getConfig().getBoolean("weather_control.restore_vanilla_on_shutdown", true)) {
             for (World world : Bukkit.getWorlds()) {
-                world.setWeatherDuration(0); // Allow vanilla weather to resume
+                world.setWeatherDuration(0);
                 world.setThunderDuration(0);
             }
         }

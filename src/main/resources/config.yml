@@ -1,5 +1,5 @@
 # OrbisClimate Optimized Configuration
-# Performance-focused settings with blizzard/sandstorm controls and arid zones
+# Performance-focused settings with improved weather transitions
 
 # ======= PERFORMANCE SETTINGS (PRIORITY) =======
 performance:
@@ -86,7 +86,7 @@ monitoring:
   memory_monitoring: true
   memory_warning_threshold: 85  # Percentage
 
-# ======= WEATHER SYSTEM OPTIMIZATION (NEW) =======
+# ======= WEATHER SYSTEM OPTIMIZATION + TRANSITIONS (IMPROVED) =======
 weather:
   # MAJOR OPTIMIZATION: Check weather every 2 minutes instead of 1 minute
   update_interval_ticks: 2400  # 2400 ticks = 2 minutes (was 1200 = 1 minute)
@@ -100,6 +100,55 @@ weather:
 
   # Weather event frequency optimization
   event_check_frequency: 4     # Check for blizzards/sandstorms every 4th weather cycle
+
+  # ======= NEW: WEATHER PERSISTENCE AND TRANSITIONS =======
+  transitions:
+    # Enable improved weather transition system
+    enabled: true
+
+    # Minimum duration a weather type must last before it can change (in seconds)
+    min_weather_duration: 300    # 5 minutes minimum
+
+    # Weather persistence settings (how long each weather type tends to last)
+    persistence:
+      clear:
+        min_duration: 300        # 5 minutes
+        max_duration: 900        # 15 minutes
+      light_rain:
+        min_duration: 240        # 4 minutes
+        max_duration: 600        # 10 minutes
+      heavy_rain:
+        min_duration: 180        # 3 minutes
+        max_duration: 600        # 10 minutes
+      thunderstorm:
+        min_duration: 300        # 5 minutes
+        max_duration: 900        # 15 minutes
+      snow:
+        min_duration: 600        # 10 minutes
+        max_duration: 1500       # 25 minutes
+      blizzard:
+        min_duration: 480        # 8 minutes
+        max_duration: 1200       # 20 minutes
+      sandstorm:
+        min_duration: 360        # 6 minutes
+        max_duration: 900        # 15 minutes
+
+    # Transition duration settings (how long it takes to change between weather types)
+    transition_durations:
+      quick_change: 30           # 30 seconds (clear <-> light rain)
+      medium_change: 90          # 1.5 minutes (rain <-> heavy rain)
+      slow_change: 180           # 3 minutes (heavy rain <-> thunderstorm)
+
+    # Weather continuity - chance for weather to continue to next time period
+    continuity:
+      morning_to_afternoon: 0.6  # 60% chance
+      afternoon_to_evening: 0.5  # 50% chance
+      evening_to_night: 0.4      # 40% chance
+      night_to_morning: 0.3      # 30% chance
+
+    # Notify players about weather transitions
+    notify_transitions: true
+    notify_weather_changes: true
 
 # ======= WIND SYSTEM (OPTIMIZED) =======
 wind:
@@ -384,22 +433,23 @@ weather_control:
 
 # ======= DEBUG AND LOGGING (ENHANCED) =======
 debug:
-  enabled: false
+  enabled: true                      # Enable to see forecast logs
   log_zone_changes: false
   log_temperature_changes: false
   log_drought_events: true
   log_performance: false
   log_particle_optimizations: false
 
-  # Weather system debug options (set to true only for troubleshooting)
-  log_weather_transitions: false     # Weather changes between periods
-  log_weather_applications: false   # When weather is applied to worlds
-  log_snow_prevention: false        # Log when snow placement is prevented
-  log_weather_interference: false   # Log when vanilla weather is blocked
+  # Weather system debug options - ENABLE THESE TO SEE FORECAST IN ACTION
+  log_weather_transitions: true      # ENABLE: See when weather changes per forecast
+  log_weather_applications: true     # ENABLE: See when weather is applied to worlds
+  log_snow_prevention: false         # Log when snow placement is prevented
+  log_weather_interference: false    # Log when vanilla weather is blocked
 
   # NEW: Weather optimization debug options
-  log_weather_optimizations: false  # Log when weather is actually applied vs skipped
-  log_weather_skips: false         # Log when weather application is skipped (unchanged)
+  log_weather_optimizations: false   # Log when weather is actually applied vs skipped
+  log_weather_skips: false          # Log when weather application is skipped (unchanged)
+  log_weather_persistence: true     # ENABLE: Log weather persistence and duration info
 
 # ======= NOTIFICATIONS (OPTIMIZED) =======
 notifications:
@@ -411,6 +461,7 @@ notifications:
   weather_progression_notifications: true
   blizzard_messages: true             # NEW: Blizzard notifications
   sandstorm_messages: true            # NEW: Sandstorm notifications
+  weather_transition_notifications: true  # NEW: Notify about weather transitions
 
 # ======= COMPATIBILITY =======
 compatibility:
@@ -432,4 +483,4 @@ experimental:
   dynamic_biome_temp:
     enabled: false
   ml_weather:
-    enabled: false~
+    enabled: false
