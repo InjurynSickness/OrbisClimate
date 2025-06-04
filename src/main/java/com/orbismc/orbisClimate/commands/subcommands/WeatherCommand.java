@@ -1,4 +1,3 @@
-// Weather Command - WeatherCommand.java
 package com.orbismc.orbisClimate.commands.subcommands;
 
 import com.orbismc.orbisClimate.OrbisClimate;
@@ -33,6 +32,8 @@ public class WeatherCommand extends BaseSubCommand {
                 return handleClearWeather(player);
             case "info":
                 return handleWeatherInfo(player);
+            case "progression":
+                return handleProgressionInfo(player);
             default:
                 player.sendMessage(ChatColor.RED + "Unknown weather command! Use '/climate weather' for help.");
                 return true;
@@ -44,6 +45,7 @@ public class WeatherCommand extends BaseSubCommand {
         player.sendMessage(ChatColor.YELLOW + "/climate weather set <type> [duration] " + ChatColor.WHITE + "- Set weather");
         player.sendMessage(ChatColor.YELLOW + "/climate weather clear " + ChatColor.WHITE + "- Clear weather locks");
         player.sendMessage(ChatColor.YELLOW + "/climate weather info " + ChatColor.WHITE + "- Show weather info");
+        player.sendMessage(ChatColor.YELLOW + "/climate weather progression " + ChatColor.WHITE + "- Show progression info");
         player.sendMessage(ChatColor.WHITE + "Weather types: clear, light_rain, heavy_rain, thunderstorm, snow, blizzard, sandstorm");
     }
 
@@ -113,6 +115,11 @@ public class WeatherCommand extends BaseSubCommand {
         long time = player.getWorld().getTime();
         int hour = (int) (((time + 6000) % 24000) / 1000);
         player.sendMessage(ChatColor.AQUA + "Current Hour: " + ChatColor.WHITE + hour + ":00");
+        
+        // NEW: Show forecast transition status
+        if (weatherForecast.isTransitionHour(player.getWorld())) {
+            player.sendMessage(ChatColor.YELLOW + "⚡ Current hour is a forecast transition hour");
+        }
 
         // Show active weather systems
         if (plugin.getBlizzardManager().isBlizzardActive(player.getWorld())) {
@@ -125,18 +132,92 @@ public class WeatherCommand extends BaseSubCommand {
             player.sendMessage(ChatColor.GRAY + "💨 Wind system is active");
         }
 
-        // Weather progression
+        // NEW: Weather progression (enhanced)
         if (plugin.getWeatherProgressionManager() != null) {
             WeatherProgressionManager.WeatherProgression progression =
                 plugin.getWeatherProgressionManager().getWorldProgression(player.getWorld());
             player.sendMessage(ChatColor.AQUA + "Weather Progression: " + ChatColor.WHITE +
                 progression.name().toLowerCase().replace("_", " "));
 
+            if (plugin.getWeatherProgressionManager().isInTransition(player.getWorld())) {
+                player.sendMessage(ChatColor.YELLOW + "⚡ Progression transition active");
+            }
+
             if (plugin.getWeatherProgressionManager().isHailActive(player.getWorld())) {
                 player.sendMessage(ChatColor.WHITE + "❄ Hail is currently active");
             }
+            
+            // Show upcoming transitions
+            int hoursUntil = weatherForecast.getHoursUntilNextTransition(player.getWorld());
+            if (hoursUntil != -1 && hoursUntil <= 3) {
+                WeatherForecast.WeatherType nextWeather = weatherForecast.getNextTransitionWeather(player.getWorld());
+                if (nextWeather != null) {
+                    String timeDesc = hoursUntil == 0 ? "this hour" : "in " + hoursUntil + " hour(s)";
+                    player.sendMessage(ChatColor.GRAY + "Next transition: " + nextWeather.getDisplayName() + " " + timeDesc);
+                }
+            }
         }
 
+        return true;
+    }
+
+    private boolean handleProgressionInfo(Player player) {
+        if (plugin.getWeatherProgressionManager() == null) {
+            player.sendMessage(ChatColor.RED + "Weather progression system not available!");
+            return true;
+        }
+        
+        player.sendMessage(ChatColor.GOLD + "=== Weather Progression Information ===");
+        
+        WeatherProgressionManager.WeatherProgression progression = 
+            plugin.getWeatherProgressionManager().getWorldProgression(player.getWorld());
+        player.sendMessage(ChatColor.AQUA + "Current Stage: " + ChatColor.WHITE + 
+            progression.name().toLowerCase().replace("_", " "));
+        
+        boolean inTransition = plugin.getWeatherProgressionManager().isInTransition(player.getWorld());
+        if (inTransition) {
+            player.sendMessage(ChatColor.YELLOW + "Status: Weather is transitioning");
+        }
+        
+        boolean hailActive = plugin.getWeatherProgressionManager().isHailActive(player.getWorld());
+        if (hailActive) {
+            player.sendMessage(ChatColor.WHITE + "❄ Hail is currently active");
+        }
+        
+        // Show forecast integration status
+        WeatherForecast.DetailedForecast forecast = plugin.getWeatherForecast().getForecast(player.getWorld());
+        if (forecast != null) {
+            int currentHour = plugin.getWeatherForecast().getCurrentHour(player.getWorld());
+            boolean isTransitionHour = forecast.isTransitionHour(currentHour);
+            
+            player.sendMessage(ChatColor.AQUA + "Forecast Integration:");
+            player.sendMessage(ChatColor.WHITE + "  Current hour is transition: " + isTransitionHour);
+            
+            // Show next forecast transition
+            int hoursUntil = plugin.getWeatherForecast().getHoursUntilNextTransition(player.getWorld());
+            if (hoursUntil != -1) {
+                WeatherForecast.WeatherType nextWeather = plugin.getWeatherForecast().getNextTransitionWeather(player.getWorld());
+                
+                String timeDesc = hoursUntil == 0 ? "this hour" : 
+                                 hoursUntil == 1 ? "next hour" : 
+                                 "in " + hoursUntil + " hours";
+                
+                player.sendMessage(ChatColor.WHITE + "  Next forecast transition: " + 
+                    nextWeather.getDisplayName() + " " + timeDesc);
+            }
+        }
+        
+        // Show progression configuration status
+        player.sendMessage(ChatColor.AQUA + "Configuration:");
+        player.sendMessage(ChatColor.WHITE + "  Enhanced Transitions: " + 
+            plugin.getConfig().getBoolean("weather_progression.enhanced_transitions.enabled", true));
+        player.sendMessage(ChatColor.WHITE + "  Pre-storm Effects: " + 
+            plugin.getConfig().getBoolean("weather_progression.pre_storm_effects.enabled", true));
+        player.sendMessage(ChatColor.WHITE + "  Hail Effects: " + 
+            plugin.getConfig().getBoolean("weather_progression.active_weather_effects.hail.enabled", true));
+        player.sendMessage(ChatColor.WHITE + "  Forecast Integration: " + 
+            plugin.getConfig().getBoolean("weather_progression.forecast_integration.use_forecast_transitions", true));
+        
         return true;
     }
 
@@ -172,7 +253,7 @@ public class WeatherCommand extends BaseSubCommand {
     @Override
     public List<String> getTabCompletions(CommandSender sender, String[] args) {
         if (args.length == 1) {
-            return Arrays.asList("set", "clear", "info");
+            return Arrays.asList("set", "clear", "info", "progression");
         } else if (args.length == 2 && args[0].equalsIgnoreCase("set")) {
             return Arrays.asList("clear", "light_rain", "heavy_rain", "thunderstorm", "snow", "blizzard", "sandstorm");
         } else if (args.length == 3 && args[0].equalsIgnoreCase("set")) {
@@ -188,6 +269,6 @@ public class WeatherCommand extends BaseSubCommand {
 
     @Override
     public String getUsage() {
-        return "/climate weather <set|clear|info>";
+        return "/climate weather <set|clear|info|progression>";
     }
 }

@@ -1,4 +1,3 @@
-// Info Command - InfoCommand.java
 package com.orbismc.orbisClimate.commands.subcommands;
 
 import com.orbismc.orbisClimate.*;
@@ -91,12 +90,33 @@ public class InfoCommand extends BaseSubCommand {
             player.sendMessage(ChatColor.AQUA + "Wind Status: " + ChatColor.WHITE +
                     (hasActiveWind ? "Active" : "Calm"));
 
+            // NEW: Show weather progression information
             if (plugin.getWeatherProgressionManager() != null) {
                 WeatherProgressionManager.WeatherProgression progression =
                         plugin.getWeatherProgressionManager().getWorldProgression(player.getWorld());
                 if (progression != WeatherProgressionManager.WeatherProgression.CLEAR) {
                     player.sendMessage(ChatColor.AQUA + "Weather Stage: " + ChatColor.WHITE +
                             progression.name().toLowerCase().replace("_", " "));
+                }
+                
+                // Show if in transition
+                if (plugin.getWeatherProgressionManager().isInTransition(player.getWorld())) {
+                    player.sendMessage(ChatColor.YELLOW + "⚡ Weather is transitioning...");
+                }
+                
+                // Show special effects
+                if (plugin.getWeatherProgressionManager().isHailActive(player.getWorld())) {
+                    player.sendMessage(ChatColor.WHITE + "❄ Hail is currently falling!");
+                }
+                
+                // Show upcoming weather transitions
+                if (weatherForecast.getHoursUntilNextTransition(player.getWorld()) != -1) {
+                    int hoursUntil = weatherForecast.getHoursUntilNextTransition(player.getWorld());
+                    WeatherForecast.WeatherType nextWeather = weatherForecast.getNextTransitionWeather(player.getWorld());
+                    if (nextWeather != null && hoursUntil <= 3) { // Only show if within 3 hours
+                        String timeDesc = hoursUntil == 0 ? "soon" : "in " + hoursUntil + " hour(s)";
+                        player.sendMessage(ChatColor.GRAY + "Next: " + nextWeather.getDisplayName() + " " + timeDesc);
+                    }
                 }
             }
         }

@@ -71,6 +71,25 @@ performance:
     medium_performance: 18.0 # Below this TPS = reduced effects
     high_performance: 19.5   # Above this TPS = full effects
 
+  # NEW: Weather progression performance settings
+  weather_progression:
+    # Limit progression effects based on player count
+    max_players_for_full_effects: 20
+
+    # Reduce progression particle density in performance mode
+    performance_mode_multiplier: 0.5
+
+    # Skip progression effects if TPS is too low
+    min_tps_for_effects: 16.0
+
+    # Batch process progression effects to reduce lag
+    use_batch_processing: true
+    batch_size: 5                # Process 5 players per tick
+
+    # Cache progression calculations
+    cache_progression_checks: true
+    cache_duration_seconds: 30
+
 # ======= PERFORMANCE MONITORING (SIMPLIFIED) =======
 monitoring:
   # Enable performance monitoring
@@ -149,6 +168,115 @@ weather:
     # Notify players about weather transitions
     notify_transitions: true
     notify_weather_changes: true
+
+# ======= WEATHER PROGRESSION (REDESIGNED TO WORK WITH FORECAST) =======
+weather_progression:
+  # Enable enhanced weather progression effects (works WITH forecast, not against it)
+  enabled: true
+
+  # Enhanced transitions between forecast weather changes
+  enhanced_transitions:
+    enabled: true
+
+    # Show warning effects before weather transitions
+    show_warnings: true
+    warning_time_hours: 2
+
+    # Transition durations (how long visual effects last during weather changes)
+    transition_durations:
+      quick_change: 30           # Clear <-> Light Rain (30 seconds)
+      medium_change: 90          # Light Rain <-> Heavy Rain (1.5 minutes)
+      slow_change: 180           # Heavy Rain <-> Thunderstorm (3 minutes)
+      storm_change: 240          # Any storm weather (4 minutes)
+
+  # Pre-storm warning effects (when storms are forecast to arrive soon)
+  pre_storm_effects:
+    enabled: true
+    duration_minutes: 5          # How long before storm to show warnings
+
+    # Lightning warnings before thunderstorms
+    lightning_warnings:
+      enabled: true
+      interval_seconds: 45       # Time between warning flashes
+      max_warnings: 6            # Maximum number of warnings to show
+      distance_range: 100        # How far away the warning lightning appears
+
+    # Building cloud effects before storms
+    cloud_buildup:
+      enabled: true
+      particle_density: 0.8      # How dense the cloud particles are
+      height_range: 25           # How high above players to show clouds
+
+  # Active weather enhancements (during forecast weather)
+  active_weather_effects:
+    # Enhanced lightning during thunderstorms
+    enhanced_lightning:
+      enabled: true
+      frequency_multiplier: 1.5  # How much more frequent than normal
+      intensity_multiplier: 1.2  # How intense the effects are
+
+    # Hail effects during heavy rain/storms
+    hail:
+      enabled: true
+      chance_during_rain: 0.3    # 30% chance during heavy rain
+      chance_during_storm: 0.6   # 60% chance during thunderstorms
+      duration_minutes: 3        # How long hail lasts
+      particle_density: 1.0      # Density of hail particles
+      sound_effects: true        # Play hail impact sounds
+
+      # Which climate zones can have hail
+      allowed_zones:
+        - TEMPERATE
+        - ARCTIC                 # Arctic zones can have ice storms
+
+      # Which biomes are excluded from hail
+      excluded_biomes:
+        - DESERT
+        - BADLANDS
+        - ERODED_BADLANDS
+        - WOODED_BADLANDS
+
+  # Post-storm effects (after storms end according to forecast)
+  post_storm_effects:
+    enabled: true
+    duration_minutes: 3          # How long clearing effects last
+
+    # Clearing sky effects
+    sky_clearing:
+      enabled: true
+      particle_density: 0.6      # Density of clearing particles
+      rainbow_chance: 0.2        # 20% chance of rainbow effects after rain
+
+  # Weather intensity variations (add variety to forecast weather)
+  intensity_variations:
+    enabled: true
+
+    # Vary intensity during long weather periods
+    dynamic_intensity:
+      enabled: true
+      variation_frequency: 300   # Change intensity every 5 minutes
+      max_intensity_change: 0.3  # Maximum change in intensity (±30%)
+
+    # Gusting effects during wind-related weather
+    gusting_effects:
+      enabled: true
+      gust_frequency: 120        # Gusts every 2 minutes on average
+      gust_duration: 15          # Each gust lasts 15 seconds
+      gust_intensity: 1.5        # Gusts are 50% more intense
+
+  # Forecast integration settings
+  forecast_integration:
+    # How far ahead to look for weather transitions (in hours)
+    forecast_lookahead: 3
+
+    # React to forecast transitions marked in the detailed forecast
+    use_forecast_transitions: true
+
+    # Override progression if forecast says otherwise
+    respect_forecast_priority: true
+
+    # Log when progression effects are triggered by forecast changes
+    log_forecast_triggers: true
 
 # ======= WIND SYSTEM (OPTIMIZED) =======
 wind:
@@ -310,31 +438,6 @@ temperature:
           - HUNGER:1:80
           - SLOWNESS:0:80
 
-# ======= WEATHER PROGRESSION (SIMPLIFIED) =======
-weather_progression:
-  enabled: true
-  pre_storm_duration_minutes: 3  # Reduced from 5
-
-  lightning_warnings:
-    enabled: true
-    interval_seconds: 45  # Increased from 30
-    warning_count: 4      # Reduced from 6
-
-  hail:
-    enabled: false
-    chance_during_rain: 0.2  # Reduced from 0.3
-    duration_minutes: 2      # Reduced from 3
-    damage_per_second: 0.3   # Reduced from 0.5
-    allowed_biomes:
-      - PLAINS
-      - FOREST
-
-  transitions:
-    light_to_heavy_rain: 4   # Increased from 3
-    heavy_rain_to_thunderstorm: 3  # Increased from 2
-    thunderstorm_to_clearing: 5     # Increased from 4
-    clearing_to_clear: 3            # Increased from 2
-
 # ======= AURORA SYSTEM (OPTIMIZED) =======
 aurora:
   enabled: false
@@ -431,6 +534,38 @@ weather_control:
   disable_vanilla_weather: true
   restore_vanilla_on_shutdown: true
 
+# ======= NOTIFICATIONS =======
+notifications:
+  permission: "orbisclimate.notifications"
+  zone_change_notifications: false    # Disabled to reduce spam
+  drought_notifications: true
+  temperature_warnings: true
+  wind_event_notifications: false     # Disabled to reduce spam
+  weather_progression_notifications: true
+  blizzard_messages: true             # NEW: Blizzard notifications
+  sandstorm_messages: true            # NEW: Sandstorm notifications
+  weather_transition_notifications: true  # NEW: Notify about weather transitions
+
+  # NEW: Weather progression notifications
+  weather_progression:
+    enabled: true
+
+    # Notify about upcoming weather changes
+    forecast_warnings: true
+    warning_time_hours: 1        # Warn 1 hour before weather changes
+
+    # Notify about weather transitions in progress
+    transition_notifications: true
+
+    # Notify about special effects (hail, enhanced lightning, etc.)
+    special_effect_notifications: true
+
+    # Notify about weather intensity changes
+    intensity_change_notifications: false  # Usually too spammy
+
+    # Permission required to see progression notifications
+    progression_permission: "orbisclimate.notifications"
+
 # ======= DEBUG AND LOGGING (ENHANCED) =======
 debug:
   enabled: true                      # Enable to see forecast logs
@@ -451,17 +586,22 @@ debug:
   log_weather_skips: false          # Log when weather application is skipped (unchanged)
   log_weather_persistence: true     # ENABLE: Log weather persistence and duration info
 
-# ======= NOTIFICATIONS (OPTIMIZED) =======
-notifications:
-  permission: "orbisclimate.notifications"
-  zone_change_notifications: false    # Disabled to reduce spam
-  drought_notifications: true
-  temperature_warnings: true
-  wind_event_notifications: false     # Disabled to reduce spam
-  weather_progression_notifications: true
-  blizzard_messages: true             # NEW: Blizzard notifications
-  sandstorm_messages: true            # NEW: Sandstorm notifications
-  weather_transition_notifications: true  # NEW: Notify about weather transitions
+  # NEW: Weather progression debug options
+  weather_progression:
+    # Log when progression stages change
+    log_progression_changes: true
+
+    # Log when forecast triggers progression effects
+    log_forecast_triggers: true
+
+    # Log transition timing and duration
+    log_transition_timing: true
+
+    # Log when special effects start/stop
+    log_special_effects: true
+
+    # Show detailed progression info in debug commands
+    include_in_debug_commands: true
 
 # ======= COMPATIBILITY =======
 compatibility:

@@ -23,7 +23,7 @@ public class OrbisClimate extends JavaPlugin implements Listener {
     private WeatherProgressionManager weatherProgressionManager;
     private DynamicSoundManager dynamicSoundManager;
     private PerformanceMonitor performanceMonitor;
-    private SnowPlacementListener snowPlacementListener; // NEW: Snow prevention listener
+    private SnowPlacementListener snowPlacementListener;
     private Random random;
 
     // Player particle preferences
@@ -37,6 +37,9 @@ public class OrbisClimate extends JavaPlugin implements Listener {
             // Save default config
             saveDefaultConfig();
             getLogger().info("✓ Config saved successfully");
+
+            // NEW: Validate weather progression configuration
+            validateWeatherProgressionConfig();
 
             // Initialize random
             random = new Random();
@@ -70,7 +73,7 @@ public class OrbisClimate extends JavaPlugin implements Listener {
             temperatureManager = new TemperatureManager(this, weatherForecast, climateZoneManager, windManager);
             getLogger().info("✓ Temperature manager initialized");
 
-            // Initialize weather progression manager
+            // IMPORTANT: Initialize weather progression manager AFTER weather forecast
             getLogger().info("Initializing weather progression manager...");
             weatherProgressionManager = new WeatherProgressionManager(this, weatherForecast, climateZoneManager);
             getLogger().info("✓ Weather progression manager initialized");
@@ -90,14 +93,14 @@ public class OrbisClimate extends JavaPlugin implements Listener {
             dynamicSoundManager = new DynamicSoundManager(this);
             getLogger().info("✓ Dynamic sound manager initialized");
 
-            // NEW: Initialize snow placement prevention listener
+            // Initialize snow placement prevention listener
             getLogger().info("Initializing snow placement prevention...");
             snowPlacementListener = new SnowPlacementListener(this);
             getLogger().info("✓ Snow placement prevention initialized");
 
             // Register event listeners
             getServer().getPluginManager().registerEvents(this, this);
-            getServer().getPluginManager().registerEvents(snowPlacementListener, this); // NEW: Register snow listener
+            getServer().getPluginManager().registerEvents(snowPlacementListener, this);
             getLogger().info("✓ Event listeners registered");
 
             // Register commands
@@ -132,57 +135,7 @@ public class OrbisClimate extends JavaPlugin implements Listener {
 
             // Start main weather system task with performance optimization
             getLogger().info("Starting weather system tasks...");
-
-            // Main weather task - OPTIMIZED: Use configurable interval with default of 2 minutes
-            int weatherUpdateInterval = getConfig().getInt("weather.update_interval_ticks", 2400);
-            Bukkit.getScheduler().runTaskTimer(this, () -> {
-                try {
-                    // Check performance before running intensive tasks
-                    if (performanceMonitor != null && performanceMonitor.shouldSkipEffects(null)) {
-                        return; // Skip this cycle if performance is poor
-                    }
-
-                    // Update weather forecast for all worlds
-                    Bukkit.getWorlds().forEach(world -> {
-                        try {
-                            weatherForecast.checkAndUpdateForecast(world);
-                        } catch (Exception e) {
-                            getLogger().warning("Error updating forecast for world " + world.getName() + ": " + e.getMessage());
-                        }
-                    });
-
-                    // Check for weather events (less frequently for better performance)
-                    if (System.currentTimeMillis() % 4 == 0) { // Every 4th cycle
-                        blizzardManager.checkForBlizzards();
-                        sandstormManager.checkForSandstorms();
-                    }
-                } catch (Exception e) {
-                    getLogger().severe("Error in weather system task: " + e.getMessage());
-                    e.printStackTrace();
-                }
-            }, 0L, weatherUpdateInterval);
-
-            // Player cache cleanup task - less frequent for better performance
-            Bukkit.getScheduler().runTaskTimer(this, () -> {
-                try {
-                    // Clear player zone cache occasionally to ensure accuracy
-                    climateZoneManager.clearPlayerCache();
-
-                    // Clean up performance monitor data
-                    if (performanceMonitor != null) {
-                        // Remove offline players from monitoring
-                        for (Player player : getServer().getOnlinePlayers()) {
-                            if (!player.isOnline()) {
-                                performanceMonitor.cleanupPlayer(player);
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    getLogger().severe("Error in cache cleanup task: " + e.getMessage());
-                    e.printStackTrace();
-                }
-            }, 12000L, 12000L); // Every 10 minutes instead of 5
-
+            startWeatherSystemTasks();
             getLogger().info("✓ Weather system tasks started");
 
             getLogger().info("OrbisClimate has been enabled successfully!");
@@ -202,6 +155,88 @@ public class OrbisClimate extends JavaPlugin implements Listener {
             getLogger().severe("✗ Failed to enable OrbisClimate: " + e.getMessage());
             e.printStackTrace();
         }
+    }
+
+    /**
+     * NEW: Validate weather progression configuration
+     */
+    private void validateWeatherProgressionConfig() {
+        // Ensure progression is configured correctly with forecast system
+        boolean progressionEnabled = getConfig().getBoolean("weather_progression.enabled", true);
+        boolean enhancedTransitions = getConfig().getBoolean("weather_progression.enhanced_transitions.enabled", true);
+        boolean forecastIntegration = getConfig().getBoolean("weather_progression.forecast_integration.use_forecast_transitions", true);
+        
+        if (progressionEnabled && !forecastIntegration) {
+            getLogger().warning("Weather progression is enabled but forecast integration is disabled!");
+            getLogger().warning("This may cause conflicts. Consider enabling forecast integration for best results.");
+        }
+        
+        if (enhancedTransitions && !progressionEnabled) {
+            getLogger().warning("Enhanced transitions are enabled but weather progression is disabled!");
+            getLogger().warning("Enhanced transitions require weather progression to be enabled.");
+        }
+        
+        getLogger().info("Weather progression configuration validated.");
+    }
+
+    /**
+     * UPDATED: Start weather system tasks with proper forecast priority
+     */
+    private void startWeatherSystemTasks() {
+        // Main weather task - OPTIMIZED: Use configurable interval with default of 2 minutes
+        int weatherUpdateInterval = getConfig().getInt("weather.update_interval_ticks", 2400);
+        Bukkit.getScheduler().runTaskTimer(this, () -> {
+            try {
+                // Check performance before running intensive tasks
+                if (performanceMonitor != null && performanceMonitor.shouldSkipEffects(null)) {
+                    return; // Skip this cycle if performance is poor
+                }
+
+                // IMPORTANT: Update weather forecast for all worlds FIRST
+                Bukkit.getWorlds().forEach(world -> {
+                    try {
+                        // The forecast system is the single source of truth
+                        weatherForecast.checkAndUpdateForecast(world);
+                        
+                        // The progression manager will automatically detect forecast changes
+                        // No need to manually coordinate - it listens for changes
+                        
+                    } catch (Exception e) {
+                        getLogger().warning("Error updating forecast for world " + world.getName() + ": " + e.getMessage());
+                    }
+                });
+
+                // Check for weather events AFTER forecast updates (less frequently for better performance)
+                if (System.currentTimeMillis() % 4 == 0) { // Every 4th cycle
+                    blizzardManager.checkForBlizzards();
+                    sandstormManager.checkForSandstorms();
+                }
+            } catch (Exception e) {
+                getLogger().severe("Error in weather system task: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }, 0L, weatherUpdateInterval);
+
+        // Player cache cleanup task - less frequent for better performance
+        Bukkit.getScheduler().runTaskTimer(this, () -> {
+            try {
+                // Clear player zone cache occasionally to ensure accuracy
+                climateZoneManager.clearPlayerCache();
+
+                // Clean up performance monitor data
+                if (performanceMonitor != null) {
+                    // Remove offline players from monitoring
+                    for (Player player : getServer().getOnlinePlayers()) {
+                        if (!player.isOnline()) {
+                            performanceMonitor.cleanupPlayer(player);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                getLogger().severe("Error in cache cleanup task: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }, 12000L, 12000L); // Every 10 minutes instead of 5
     }
 
     /**
@@ -288,22 +323,38 @@ public class OrbisClimate extends JavaPlugin implements Listener {
         getLogger().info("Weather Update Interval: " + weatherUpdateInterval + " ticks (" + (weatherUpdateInterval / 20) + " seconds)");
     }
 
+    /**
+     * UPDATED: Print feature status with progression info
+     */
     private void printFeatureStatus() {
         getLogger().info("=== Feature Status ===");
         getLogger().info("Wind System: " + (getConfig().getBoolean("wind.enabled", true) ? "ENABLED" : "DISABLED"));
         getLogger().info("Temperature System: " + (getConfig().getBoolean("temperature.enabled", true) ? "ENABLED" : "DISABLED"));
         getLogger().info("Climate Zones: " + (climateZoneManager != null ? "ENABLED" : "DISABLED"));
-        getLogger().info("Weather Progression: " + (getConfig().getBoolean("weather_progression.enabled", true) ? "ENABLED" : "DISABLED"));
+        
+        // UPDATED: Weather progression status
+        boolean progressionEnabled = getConfig().getBoolean("weather_progression.enabled", true);
+        boolean enhancedTransitions = getConfig().getBoolean("weather_progression.enhanced_transitions.enabled", true);
+        boolean forecastIntegration = getConfig().getBoolean("weather_progression.forecast_integration.use_forecast_transitions", true);
+        
+        getLogger().info("Weather Progression: " + (progressionEnabled ? "ENABLED" : "DISABLED"));
+        if (progressionEnabled) {
+            getLogger().info("  Enhanced Transitions: " + (enhancedTransitions ? "ENABLED" : "DISABLED"));
+            getLogger().info("  Forecast Integration: " + (forecastIntegration ? "ENABLED" : "DISABLED"));
+        }
+        
         getLogger().info("Aurora Effects: " + (getConfig().getBoolean("aurora.enabled", true) ? "ENABLED" : "DISABLED"));
         getLogger().info("Heat Mirages: " + (getConfig().getBoolean("heat_mirages.enabled", true) ? "ENABLED" : "DISABLED"));
         getLogger().info("Drought System: " + (getConfig().getBoolean("drought.effects.enabled", true) ? "ENABLED" : "DISABLED"));
-        getLogger().info("Lightning Warnings: " + (getConfig().getBoolean("weather_progression.lightning_warnings.enabled", true) ? "ENABLED" : "DISABLED"));
-        getLogger().info("Hail Effects: " + (getConfig().getBoolean("weather_progression.hail.enabled", true) ? "ENABLED" : "DISABLED"));
+        
+        // UPDATED: Lightning and hail from progression system
+        getLogger().info("Lightning Warnings: " + (getConfig().getBoolean("weather_progression.pre_storm_effects.lightning_warnings.enabled", true) ? "ENABLED" : "DISABLED"));
+        getLogger().info("Hail Effects: " + (getConfig().getBoolean("weather_progression.active_weather_effects.hail.enabled", true) ? "ENABLED" : "DISABLED"));
         getLogger().info("Dynamic Sound System: " + (dynamicSoundManager != null ? "ENABLED" : "DISABLED"));
         getLogger().info("Performance Monitoring: " + (performanceMonitor != null ? "ENABLED" : "DISABLED"));
         getLogger().info("Vanilla Weather: " + (getConfig().getBoolean("weather_control.disable_vanilla_weather", true) ? "DISABLED" : "ENABLED"));
-        getLogger().info("Snow Placement Prevention: " + (getConfig().getBoolean("weather_control.prevent_snow_placement", true) ? "ENABLED" : "DISABLED")); // NEW
-        getLogger().info("Weather Optimization: " + (getConfig().getBoolean("weather.skip_unchanged", true) ? "ENABLED" : "DISABLED")); // NEW
+        getLogger().info("Snow Placement Prevention: " + (getConfig().getBoolean("weather_control.prevent_snow_placement", true) ? "ENABLED" : "DISABLED"));
+        getLogger().info("Weather Optimization: " + (getConfig().getBoolean("weather.skip_unchanged", true) ? "ENABLED" : "DISABLED"));
     }
 
     @Override
@@ -463,7 +514,7 @@ public class OrbisClimate extends JavaPlugin implements Listener {
         if (dynamicSoundManager != null) {
             dynamicSoundManager.reloadConfig();
         }
-        if (snowPlacementListener != null) { // NEW: Reload snow listener config
+        if (snowPlacementListener != null) {
             snowPlacementListener.reloadConfig();
         }
 

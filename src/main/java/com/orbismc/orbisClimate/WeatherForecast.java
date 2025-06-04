@@ -504,6 +504,75 @@ public class WeatherForecast {
         }
     }
 
+    // NEW: Check if current hour is a transition hour for progression system
+    public boolean isTransitionHour(World world) {
+        DetailedForecast forecast = worldForecasts.get(world);
+        if (forecast == null) return false;
+        
+        int currentHour = getCurrentHour(world);
+        return forecast.isTransitionHour(currentHour);
+    }
+
+    // NEW: Get upcoming weather for progression pre-warnings
+    public WeatherType getUpcomingWeather(World world, int hoursAhead) {
+        DetailedForecast forecast = worldForecasts.get(world);
+        if (forecast == null) return WeatherType.CLEAR;
+        
+        int currentHour = getCurrentHour(world);
+        int futureHour = (currentHour + hoursAhead) % 24;
+        return forecast.getWeatherForHour(futureHour);
+    }
+
+    // NEW: Get next transition hour for progression system
+    public int getNextTransitionHour(World world) {
+        DetailedForecast forecast = worldForecasts.get(world);
+        if (forecast == null) return -1;
+        
+        int currentHour = getCurrentHour(world);
+        
+        // Look ahead for next transition
+        for (int hour = currentHour + 1; hour < 24; hour++) {
+            if (forecast.isTransitionHour(hour)) {
+                return hour;
+            }
+        }
+        
+        // Check next day (wrap around)
+        for (int hour = 0; hour <= currentHour; hour++) {
+            if (forecast.isTransitionHour(hour)) {
+                return hour;
+            }
+        }
+        
+        return -1; // No transitions found
+    }
+
+    // NEW: Get weather type at next transition for progression system
+    public WeatherType getNextTransitionWeather(World world) {
+        int nextTransitionHour = getNextTransitionHour(world);
+        if (nextTransitionHour == -1) return null;
+        
+        DetailedForecast forecast = worldForecasts.get(world);
+        if (forecast == null) return null;
+        
+        return forecast.getWeatherForHour(nextTransitionHour);
+    }
+
+    // NEW: Get hours until next transition for progression warnings
+    public int getHoursUntilNextTransition(World world) {
+        int nextTransitionHour = getNextTransitionHour(world);
+        if (nextTransitionHour == -1) return -1;
+        
+        int currentHour = getCurrentHour(world);
+        
+        if (nextTransitionHour > currentHour) {
+            return nextTransitionHour - currentHour;
+        } else {
+            // Next day
+            return (24 - currentHour) + nextTransitionHour;
+        }
+    }
+
     // Public interface methods
     public DetailedForecast getForecast(World world) {
         return worldForecasts.get(world);

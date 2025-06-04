@@ -11,47 +11,59 @@ import org.bukkit.Color;
 
 import java.util.*;
 
+/**
+ * REDESIGNED WeatherProgressionManager that works WITH the forecast system
+ * instead of against it. This adds visual/audio enhancements to forecast weather
+ * without trying to control the actual weather state.
+ */
 public class WeatherProgressionManager {
 
     public enum WeatherProgression {
         CLEAR,
-        PRE_STORM,      // Lightning warnings, building clouds
-        LIGHT_RAIN,
-        HEAVY_RAIN,
-        THUNDERSTORM,
-        POST_STORM      // Clearing up
+        PRE_STORM,      // Visual warnings before storms
+        ACTIVE_WEATHER, // Weather is active according to forecast
+        POST_STORM,     // Clearing effects after storms
+        TRANSITION      // During forecast transitions
     }
 
-    public static class WorldWeatherData {
+    public static class WorldProgressionData {
         private WeatherProgression currentProgression;
+        private WeatherForecast.WeatherType lastKnownWeather;
         private WeatherForecast.WeatherType targetWeather;
         private long progressionStartTime;
-        private long nextProgressionTime;
+        private long nextProgressionCheck;
         private boolean hailActive;
         private long hailStartTime;
         private int lightningWarningCount;
         private long lastLightningWarning;
+        private boolean inTransition;
+        private long transitionStartTime;
 
-        public WorldWeatherData() {
+        public WorldProgressionData() {
             this.currentProgression = WeatherProgression.CLEAR;
+            this.lastKnownWeather = WeatherForecast.WeatherType.CLEAR;
             this.targetWeather = WeatherForecast.WeatherType.CLEAR;
             this.progressionStartTime = System.currentTimeMillis();
-            this.nextProgressionTime = 0;
+            this.nextProgressionCheck = 0;
             this.hailActive = false;
             this.hailStartTime = 0;
             this.lightningWarningCount = 0;
             this.lastLightningWarning = 0;
+            this.inTransition = false;
+            this.transitionStartTime = 0;
         }
 
         // Getters and setters
         public WeatherProgression getCurrentProgression() { return currentProgression; }
         public void setCurrentProgression(WeatherProgression progression) { this.currentProgression = progression; }
+        public WeatherForecast.WeatherType getLastKnownWeather() { return lastKnownWeather; }
+        public void setLastKnownWeather(WeatherForecast.WeatherType weather) { this.lastKnownWeather = weather; }
         public WeatherForecast.WeatherType getTargetWeather() { return targetWeather; }
         public void setTargetWeather(WeatherForecast.WeatherType weather) { this.targetWeather = weather; }
         public long getProgressionStartTime() { return progressionStartTime; }
         public void setProgressionStartTime(long time) { this.progressionStartTime = time; }
-        public long getNextProgressionTime() { return nextProgressionTime; }
-        public void setNextProgressionTime(long time) { this.nextProgressionTime = time; }
+        public long getNextProgressionCheck() { return nextProgressionCheck; }
+        public void setNextProgressionCheck(long time) { this.nextProgressionCheck = time; }
         public boolean isHailActive() { return hailActive; }
         public void setHailActive(boolean active) { this.hailActive = active; }
         public long getHailStartTime() { return hailStartTime; }
@@ -60,6 +72,10 @@ public class WeatherProgressionManager {
         public void setLightningWarningCount(int count) { this.lightningWarningCount = count; }
         public long getLastLightningWarning() { return lastLightningWarning; }
         public void setLastLightningWarning(long time) { this.lastLightningWarning = time; }
+        public boolean isInTransition() { return inTransition; }
+        public void setInTransition(boolean transition) { this.inTransition = transition; }
+        public long getTransitionStartTime() { return transitionStartTime; }
+        public void setTransitionStartTime(long time) { this.transitionStartTime = time; }
     }
 
     private final OrbisClimate plugin;
@@ -75,9 +91,11 @@ public class WeatherProgressionManager {
     private int lightningWarningIntervalSeconds;
     private double hailChanceDuringRain;
     private int hailDurationMinutes;
+    private boolean enhancedTransitions;
+    private int transitionWarningMinutes;
 
     // Runtime data
-    private final Map<World, WorldWeatherData> worldWeatherData = new HashMap<>();
+    private final Map<World, WorldProgressionData> worldProgressionData = new HashMap<>();
     private BukkitTask progressionTask;
 
     public WeatherProgressionManager(OrbisClimate plugin, WeatherForecast weatherForecast,
@@ -100,11 +118,13 @@ public class WeatherProgressionManager {
         lightningWarningIntervalSeconds = plugin.getConfig().getInt("weather_progression.lightning_warnings.interval_seconds", 30);
         hailChanceDuringRain = plugin.getConfig().getDouble("weather_progression.hail.chance_during_rain", 0.3);
         hailDurationMinutes = plugin.getConfig().getInt("weather_progression.hail.duration_minutes", 3);
+        enhancedTransitions = plugin.getConfig().getBoolean("weather_progression.enhanced_transitions", true);
+        transitionWarningMinutes = plugin.getConfig().getInt("weather_progression.transition_warning_minutes", 2);
     }
 
     private void initializeWorldData() {
         for (World world : Bukkit.getWorlds()) {
-            worldWeatherData.put(world, new WorldWeatherData());
+            worldProgressionData.put(world, new WorldProgressionData());
         }
     }
 
@@ -114,177 +134,194 @@ public class WeatherProgressionManager {
         progressionTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             for (World world : Bukkit.getWorlds()) {
                 updateWeatherProgression(world);
-                processWeatherEffects(world);
+                processProgressionEffects(world);
             }
         }, 0L, 20L); // Update every second
     }
 
+    /**
+     * NEW: Main progression update that follows forecast instead of controlling it
+     */
     private void updateWeatherProgression(World world) {
-        WorldWeatherData data = worldWeatherData.get(world);
+        WorldProgressionData data = worldProgressionData.get(world);
         if (data == null) return;
 
-        WeatherForecast.WeatherType currentTarget = weatherForecast.getCurrentWeather(world);
+        // Get current weather from forecast (single source of truth)
+        WeatherForecast.WeatherType currentForecastWeather = weatherForecast.getCurrentWeather(world);
+        WeatherForecast.WeatherType lastKnownWeather = data.getLastKnownWeather();
+        
         long currentTime = System.currentTimeMillis();
 
-        // Check if target weather has changed
-        if (currentTarget != data.getTargetWeather()) {
-            startWeatherTransition(world, data, currentTarget);
+        // Check if forecast weather has changed (transition detection)
+        if (currentForecastWeather != lastKnownWeather) {
+            handleForecastWeatherChange(world, data, lastKnownWeather, currentForecastWeather);
         }
 
-        // Check if it's time for next progression step
-        if (currentTime >= data.getNextProgressionTime()) {
-            progressWeatherStep(world, data);
-        }
+        // Update progression based on current forecast weather
+        updateProgressionForCurrentWeather(world, data, currentForecastWeather, currentTime);
 
-        // Handle hail timing
-        if (data.isHailActive() &&
-                currentTime - data.getHailStartTime() > (hailDurationMinutes * 60 * 1000)) {
-            stopHail(world, data);
-        }
+        // Handle ongoing effects
+        handleOngoingEffects(world, data, currentTime);
+
+        // Update our tracking
+        data.setLastKnownWeather(currentForecastWeather);
     }
 
-    private void startWeatherTransition(World world, WorldWeatherData data, WeatherForecast.WeatherType newTarget) {
-        data.setTargetWeather(newTarget);
+    /**
+     * Handle when the forecast weather changes - this is where we add transition effects
+     */
+    private void handleForecastWeatherChange(World world, WorldProgressionData data, 
+                                           WeatherForecast.WeatherType from, WeatherForecast.WeatherType to) {
+        
+        if (plugin.getConfig().getBoolean("debug.log_weather_transitions", false)) {
+            plugin.getLogger().info("Progression Manager detected forecast change in " + world.getName() + 
+                ": " + from.getDisplayName() + " -> " + to.getDisplayName());
+        }
+
+        // Start transition effects if enabled
+        if (enhancedTransitions) {
+            startTransitionEffects(world, data, from, to);
+        }
+
+        // Determine new progression based on the forecast weather
+        WeatherProgression newProgression = determineProgressionForWeather(to);
+        data.setCurrentProgression(newProgression);
         data.setProgressionStartTime(System.currentTimeMillis());
 
-        // Determine starting progression based on current and target weather
-        WeatherProgression startProgression = determineStartProgression(data.getCurrentProgression(), newTarget);
-        data.setCurrentProgression(startProgression);
-
-        // Schedule next progression step
-        scheduleNextProgression(data, startProgression, newTarget);
-
-        // Start lightning warnings if transitioning to thunderstorm
-        if (newTarget == WeatherForecast.WeatherType.THUNDERSTORM && lightningWarningsEnabled) {
+        // Start special effects for certain weather types
+        if (to == WeatherForecast.WeatherType.THUNDERSTORM && lightningWarningsEnabled) {
+            // Reset lightning warnings for new storm
             data.setLightningWarningCount(0);
             data.setLastLightningWarning(System.currentTimeMillis());
         }
-    }
-
-    private WeatherProgression determineStartProgression(WeatherProgression current, WeatherForecast.WeatherType target) {
-        // If we're going to a storm, start with pre-storm
-        if (target == WeatherForecast.WeatherType.THUNDERSTORM ||
-                target == WeatherForecast.WeatherType.HEAVY_RAIN) {
-            return WeatherProgression.PRE_STORM;
-        }
-
-        // If going to light rain from clear, go directly
-        if (target == WeatherForecast.WeatherType.LIGHT_RAIN && current == WeatherProgression.CLEAR) {
-            return WeatherProgression.LIGHT_RAIN;
-        }
-
-        // If clearing up, go to post-storm first
-        if (target == WeatherForecast.WeatherType.CLEAR &&
-                (current == WeatherProgression.THUNDERSTORM || current == WeatherProgression.HEAVY_RAIN)) {
-            return WeatherProgression.POST_STORM;
-        }
-
-        return WeatherProgression.CLEAR;
-    }
-
-    private void scheduleNextProgression(WorldWeatherData data, WeatherProgression current, WeatherForecast.WeatherType target) {
-        long delay = 0;
-
-        switch (current) {
-            case PRE_STORM:
-                delay = preStormDurationMinutes * 60 * 1000; // Convert to milliseconds
-                break;
-            case LIGHT_RAIN:
-                if (target == WeatherForecast.WeatherType.HEAVY_RAIN || target == WeatherForecast.WeatherType.THUNDERSTORM) {
-                    delay = 3 * 60 * 1000; // 3 minutes before intensifying
-                }
-                break;
-            case HEAVY_RAIN:
-                if (target == WeatherForecast.WeatherType.THUNDERSTORM) {
-                    delay = 2 * 60 * 1000; // 2 minutes before thunder starts
-                }
-                break;
-            case POST_STORM:
-                delay = 2 * 60 * 1000; // 2 minutes to fully clear
-                break;
-        }
-
-        data.setNextProgressionTime(System.currentTimeMillis() + delay);
-    }
-
-    private void progressWeatherStep(World world, WorldWeatherData data) {
-        WeatherProgression current = data.getCurrentProgression();
-        WeatherForecast.WeatherType target = data.getTargetWeather();
-
-        WeatherProgression next = getNextProgression(current, target);
-        data.setCurrentProgression(next);
-
-        // Apply world weather changes
-        applyProgressionToWorld(world, next);
-
-        // Schedule next step if needed
-        if (next != WeatherProgression.CLEAR && next != WeatherProgression.THUNDERSTORM) {
-            scheduleNextProgression(data, next, target);
-        }
 
         // Check for hail during rain
-        if (hailEnabled && (next == WeatherProgression.HEAVY_RAIN) &&
-                random.nextDouble() < hailChanceDuringRain) {
+        if (hailEnabled && isRainWeather(to) && random.nextDouble() < hailChanceDuringRain) {
             startHail(world, data);
         }
 
-        // Notify players of weather changes
-        notifyPlayersOfProgression(world, next);
+        // Notify players
+        notifyPlayersOfWeatherChange(world, from, to);
     }
 
-    private WeatherProgression getNextProgression(WeatherProgression current, WeatherForecast.WeatherType target) {
-        switch (current) {
-            case PRE_STORM:
-                return WeatherProgression.LIGHT_RAIN;
+    /**
+     * NEW: Determine what progression stage we should be in based on forecast weather
+     */
+    private WeatherProgression determineProgressionForWeather(WeatherForecast.WeatherType weather) {
+        switch (weather) {
+            case CLEAR:
+                return WeatherProgression.CLEAR;
             case LIGHT_RAIN:
-                if (target == WeatherForecast.WeatherType.HEAVY_RAIN || target == WeatherForecast.WeatherType.THUNDERSTORM) {
-                    return WeatherProgression.HEAVY_RAIN;
-                }
-                return WeatherProgression.CLEAR;
             case HEAVY_RAIN:
-                if (target == WeatherForecast.WeatherType.THUNDERSTORM) {
-                    return WeatherProgression.THUNDERSTORM;
-                }
-                return WeatherProgression.POST_STORM;
+            case SNOW:
+                return WeatherProgression.ACTIVE_WEATHER;
             case THUNDERSTORM:
-                return WeatherProgression.POST_STORM;
-            case POST_STORM:
-                return WeatherProgression.CLEAR;
+            case BLIZZARD:
+            case SANDSTORM:
+                return WeatherProgression.ACTIVE_WEATHER;
             default:
                 return WeatherProgression.CLEAR;
         }
     }
 
-    private void applyProgressionToWorld(World world, WeatherProgression progression) {
-        switch (progression) {
-            case CLEAR:
-                world.setStorm(false);
-                world.setThundering(false);
-                break;
-            case PRE_STORM:
-                // Don't change world weather yet, just visual effects
-                break;
-            case LIGHT_RAIN:
-                world.setStorm(true);
-                world.setThundering(false);
-                break;
-            case HEAVY_RAIN:
-                world.setStorm(true);
-                world.setThundering(false);
-                break;
-            case THUNDERSTORM:
-                world.setStorm(true);
-                world.setThundering(true);
-                break;
-            case POST_STORM:
-                world.setStorm(false);
-                world.setThundering(false);
-                break;
+    /**
+     * NEW: Update progression effects based on current forecast weather
+     */
+    private void updateProgressionForCurrentWeather(World world, WorldProgressionData data, 
+                                                   WeatherForecast.WeatherType currentWeather, long currentTime) {
+        
+        // Check if we need to advance within the current weather type
+        if (currentTime >= data.getNextProgressionCheck()) {
+            
+            switch (data.getCurrentProgression()) {
+                case CLEAR:
+                    // Check if we should show pre-storm effects before next weather change
+                    checkForUpcomingWeatherTransition(world, data);
+                    break;
+                    
+                case ACTIVE_WEATHER:
+                    // Weather is active, check for intensity changes or special effects
+                    updateActiveWeatherEffects(world, data, currentWeather);
+                    break;
+                    
+                case TRANSITION:
+                    // Handle ongoing transitions
+                    updateTransitionEffects(world, data);
+                    break;
+            }
+            
+            // Schedule next check
+            data.setNextProgressionCheck(currentTime + 10000); // Check every 10 seconds
         }
     }
 
-    private void processWeatherEffects(World world) {
-        WorldWeatherData data = worldWeatherData.get(world);
+    /**
+     * NEW: Check if we should show warning effects for upcoming weather changes
+     */
+    private void checkForUpcomingWeatherTransition(World world, WorldProgressionData data) {
+        // Get detailed forecast to check for upcoming transitions
+        WeatherForecast.DetailedForecast forecast = weatherForecast.getForecast(world);
+        if (forecast == null) return;
+
+        int currentHour = weatherForecast.getCurrentHour(world);
+        
+        // Look ahead for upcoming transitions
+        for (int lookAhead = 1; lookAhead <= 3; lookAhead++) { // Look 1-3 hours ahead
+            int futureHour = (currentHour + lookAhead) % 24;
+            
+            if (forecast.isTransitionHour(futureHour)) {
+                WeatherForecast.WeatherType upcomingWeather = forecast.getWeatherForHour(futureHour);
+                
+                // Show pre-storm effects if a storm is coming
+                if (isStormWeather(upcomingWeather) && data.getCurrentProgression() == WeatherProgression.CLEAR) {
+                    data.setCurrentProgression(WeatherProgression.PRE_STORM);
+                    data.setTargetWeather(upcomingWeather);
+                    notifyPlayersOfUpcomingWeather(world, upcomingWeather, lookAhead);
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+     * Start transition effects between weather types
+     */
+    private void startTransitionEffects(World world, WorldProgressionData data, 
+                                      WeatherForecast.WeatherType from, WeatherForecast.WeatherType to) {
+        data.setInTransition(true);
+        data.setTransitionStartTime(System.currentTimeMillis());
+        data.setCurrentProgression(WeatherProgression.TRANSITION);
+        
+        // Schedule transition completion
+        long transitionDuration = getTransitionDuration(from, to) * 1000L; // Convert to milliseconds
+        data.setNextProgressionCheck(System.currentTimeMillis() + transitionDuration);
+    }
+
+    /**
+     * Get transition duration based on weather types
+     */
+    private long getTransitionDuration(WeatherForecast.WeatherType from, WeatherForecast.WeatherType to) {
+        // Quick transitions
+        if ((from == WeatherForecast.WeatherType.CLEAR && to == WeatherForecast.WeatherType.LIGHT_RAIN) ||
+            (from == WeatherForecast.WeatherType.LIGHT_RAIN && to == WeatherForecast.WeatherType.CLEAR)) {
+            return plugin.getConfig().getLong("weather_progression.transitions.quick_change", 30);
+        }
+        
+        // Medium transitions
+        if ((from == WeatherForecast.WeatherType.LIGHT_RAIN && to == WeatherForecast.WeatherType.HEAVY_RAIN) ||
+            (from == WeatherForecast.WeatherType.HEAVY_RAIN && to == WeatherForecast.WeatherType.LIGHT_RAIN)) {
+            return plugin.getConfig().getLong("weather_progression.transitions.medium_change", 90);
+        }
+        
+        // Slow transitions (storms)
+        return plugin.getConfig().getLong("weather_progression.transitions.slow_change", 180);
+    }
+
+    /**
+     * Process ongoing effects for current progression
+     */
+    private void processProgressionEffects(World world) {
+        WorldProgressionData data = worldProgressionData.get(world);
         if (data == null) return;
 
         WeatherProgression progression = data.getCurrentProgression();
@@ -293,18 +330,63 @@ public class WeatherProgressionManager {
             case PRE_STORM:
                 processPreStormEffects(world, data);
                 break;
-            case HEAVY_RAIN:
-                if (data.isHailActive()) {
-                    processHailEffects(world);
-                }
+            case ACTIVE_WEATHER:
+                processActiveWeatherEffects(world, data);
                 break;
-            case THUNDERSTORM:
-                processThunderstormEffects(world);
+            case TRANSITION:
+                processTransitionEffects(world, data);
                 break;
         }
     }
 
-    private void processPreStormEffects(World world, WorldWeatherData data) {
+    /**
+     * Handle ongoing effects during active weather
+     */
+    private void handleOngoingEffects(World world, WorldProgressionData data, long currentTime) {
+        // Handle hail timing
+        if (data.isHailActive() &&
+                currentTime - data.getHailStartTime() > (hailDurationMinutes * 60 * 1000)) {
+            stopHail(world, data);
+        }
+    }
+
+    /**
+     * Update effects during active weather
+     */
+    private void updateActiveWeatherEffects(World world, WorldProgressionData data, WeatherForecast.WeatherType weather) {
+        // Add intensity variations or special effects during active weather
+        switch (weather) {
+            case THUNDERSTORM:
+                // Continue lightning warnings during storm
+                processThunderstormEffects(world, data);
+                break;
+            case HEAVY_RAIN:
+                // Check for hail if not already active
+                if (!data.isHailActive() && hailEnabled && random.nextDouble() < (hailChanceDuringRain * 0.1)) {
+                    startHail(world, data);
+                }
+                break;
+        }
+    }
+
+    /**
+     * Update transition effects
+     */
+    private void updateTransitionEffects(World world, WorldProgressionData data) {
+        long currentTime = System.currentTimeMillis();
+        
+        if (currentTime >= data.getNextProgressionCheck()) {
+            // Transition complete
+            data.setInTransition(false);
+            WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(world);
+            data.setCurrentProgression(determineProgressionForWeather(currentWeather));
+        }
+    }
+
+    /**
+     * Process pre-storm effects (unchanged from original)
+     */
+    private void processPreStormEffects(World world, WorldProgressionData data) {
         long currentTime = System.currentTimeMillis();
 
         // Lightning warnings
@@ -322,24 +404,127 @@ public class WeatherProgressionManager {
         }
     }
 
-    private void processHailEffects(World world) {
-        for (Player player : world.getPlayers()) {
-            ClimateZoneManager.ClimateZone zone = climateZoneManager.getPlayerClimateZone(player);
-
-            // Hail is more common in temperate zones
-            if (zone == ClimateZoneManager.ClimateZone.TEMPERATE && random.nextInt(20) == 0) {
-                createHailEffects(player);
-            }
+    /**
+     * Process active weather effects
+     */
+    private void processActiveWeatherEffects(World world, WorldProgressionData data) {
+        if (data.isHailActive()) {
+            processHailEffects(world);
         }
     }
 
-    private void processThunderstormEffects(World world) {
+    /**
+     * Process transition effects
+     */
+    private void processTransitionEffects(World world, WorldProgressionData data) {
+        // Add visual effects during transitions
+        if (random.nextInt(50) == 0) { // 2% chance per second
+            createTransitionEffects(world, data);
+        }
+    }
+
+    /**
+     * Process thunderstorm effects (unchanged from original)
+     */
+    private void processThunderstormEffects(World world, WorldProgressionData data) {
         // Enhanced lightning effects during storms
         if (random.nextInt(200) == 0) { // Every ~10 seconds on average
             createEnhancedLightningEffects(world);
         }
     }
 
+    /**
+     * Create transition effects between weather types
+     */
+    private void createTransitionEffects(World world, WorldProgressionData data) {
+        WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(world);
+        
+        for (Player player : world.getPlayers()) {
+            if (random.nextInt(3) != 0) continue; // Not every player every time
+
+            Location loc = player.getLocation();
+            
+            // Create swirling particles to indicate change
+            for (int i = 0; i < 10; i++) {
+                double angle = (System.currentTimeMillis() / 100.0 + i * 36) % 360;
+                double radians = Math.toRadians(angle);
+                double radius = 5 + Math.sin(System.currentTimeMillis() / 1000.0) * 2;
+                
+                Location particleLoc = loc.clone().add(
+                    Math.cos(radians) * radius,
+                    10 + Math.sin(System.currentTimeMillis() / 800.0 + i) * 3,
+                    Math.sin(radians) * radius
+                );
+                
+                Color transitionColor = getWeatherColor(currentWeather);
+                Particle.DustOptions dustOptions = new Particle.DustOptions(transitionColor, 1.5f);
+                
+                player.spawnParticle(Particle.DUST, particleLoc, 1, 0.1, 0.1, 0.1, 0, dustOptions);
+            }
+        }
+    }
+
+    /**
+     * Get color associated with weather type for effects
+     */
+    private Color getWeatherColor(WeatherForecast.WeatherType weather) {
+        switch (weather) {
+            case CLEAR:
+                return Color.fromRGB(255, 255, 200); // Light yellow
+            case LIGHT_RAIN:
+            case HEAVY_RAIN:
+                return Color.fromRGB(100, 150, 200); // Light blue
+            case THUNDERSTORM:
+                return Color.fromRGB(80, 80, 120); // Dark blue
+            case SNOW:
+            case BLIZZARD:
+                return Color.fromRGB(255, 255, 255); // White
+            case SANDSTORM:
+                return Color.fromRGB(200, 150, 100); // Sandy brown
+            default:
+                return Color.fromRGB(150, 150, 150); // Gray
+        }
+    }
+
+    // Helper methods
+    private boolean isStormWeather(WeatherForecast.WeatherType weather) {
+        return weather == WeatherForecast.WeatherType.THUNDERSTORM ||
+               weather == WeatherForecast.WeatherType.BLIZZARD ||
+               weather == WeatherForecast.WeatherType.SANDSTORM;
+    }
+
+    private boolean isRainWeather(WeatherForecast.WeatherType weather) {
+        return weather == WeatherForecast.WeatherType.LIGHT_RAIN ||
+               weather == WeatherForecast.WeatherType.HEAVY_RAIN ||
+               weather == WeatherForecast.WeatherType.THUNDERSTORM;
+    }
+
+    // Notification methods
+    private void notifyPlayersOfWeatherChange(World world, WeatherForecast.WeatherType from, WeatherForecast.WeatherType to) {
+        if (!plugin.getConfig().getBoolean("notifications.weather_transition_notifications", true)) {
+            return;
+        }
+        
+        for (Player player : world.getPlayers()) {
+            if (player.hasPermission("orbisclimate.notifications")) {
+                player.sendMessage("§6[OrbisClimate] §7Weather changing: §f" + 
+                    from.getDisplayName() + " §7→ §f" + to.getDisplayName());
+            }
+        }
+    }
+
+    private void notifyPlayersOfUpcomingWeather(World world, WeatherForecast.WeatherType upcoming, int hoursAhead) {
+        String timeDesc = hoursAhead == 1 ? "within the hour" : "in " + hoursAhead + " hours";
+        
+        for (Player player : world.getPlayers()) {
+            if (player.hasPermission("orbisclimate.notifications")) {
+                player.sendMessage("§6[OrbisClimate] §7" + upcoming.getDisplayName() + 
+                    " approaching " + timeDesc + "...");
+            }
+        }
+    }
+
+    // Original effect methods (unchanged)
     private void createLightningWarning(World world) {
         for (Player player : world.getPlayers()) {
             Location loc = player.getLocation();
@@ -392,7 +577,7 @@ public class WeatherProgressionManager {
         }
     }
 
-    private void startHail(World world, WorldWeatherData data) {
+    private void startHail(World world, WorldProgressionData data) {
         data.setHailActive(true);
         data.setHailStartTime(System.currentTimeMillis());
 
@@ -404,7 +589,7 @@ public class WeatherProgressionManager {
         }
     }
 
-    private void stopHail(World world, WorldWeatherData data) {
+    private void stopHail(World world, WorldProgressionData data) {
         data.setHailActive(false);
 
         // Notify players
@@ -415,13 +600,19 @@ public class WeatherProgressionManager {
         }
     }
 
+    private void processHailEffects(World world) {
+        for (Player player : world.getPlayers()) {
+            ClimateZoneManager.ClimateZone zone = climateZoneManager.getPlayerClimateZone(player);
+
+            // Hail is more common in temperate zones
+            if (zone == ClimateZoneManager.ClimateZone.TEMPERATE && random.nextInt(20) == 0) {
+                createHailEffects(player);
+            }
+        }
+    }
+
     private void createHailEffects(Player player) {
         Location loc = player.getLocation();
-
-        // Don't show hail if player is indoors
-        if (climateZoneManager != null) {
-            // You could add indoor check here if needed
-        }
 
         // Create hail particles falling around player
         for (int i = 0; i < 10; i++) {
@@ -472,45 +663,20 @@ public class WeatherProgressionManager {
         }
     }
 
-    private void notifyPlayersOfProgression(World world, WeatherProgression progression) {
-        String message = getProgressionMessage(progression);
-        if (message == null) return;
-
-        for (Player player : world.getPlayers()) {
-            if (player.hasPermission("orbisclimate.notifications")) {
-                player.sendMessage(message);
-            }
-        }
-    }
-
-    private String getProgressionMessage(WeatherProgression progression) {
-        switch (progression) {
-            case PRE_STORM:
-                return "§7§lClouds gather overhead as a storm approaches...";
-            case LIGHT_RAIN:
-                return "§9§l☔ Light rain begins to fall.";
-            case HEAVY_RAIN:
-                return "§1§l☔ The rain intensifies into a heavy downpour!";
-            case THUNDERSTORM:
-                return "§5§l⚡ Thunder rumbles as the storm reaches its peak!";
-            case POST_STORM:
-                return "§7§lThe storm begins to weaken and move on...";
-            case CLEAR:
-                return "§6§l☀ The skies clear as the storm passes.";
-            default:
-                return null;
-        }
-    }
-
-    // Public getters
+    // Public getters (updated to reflect new system)
     public WeatherProgression getWorldProgression(World world) {
-        WorldWeatherData data = worldWeatherData.get(world);
+        WorldProgressionData data = worldProgressionData.get(world);
         return data != null ? data.getCurrentProgression() : WeatherProgression.CLEAR;
     }
 
     public boolean isHailActive(World world) {
-        WorldWeatherData data = worldWeatherData.get(world);
+        WorldProgressionData data = worldProgressionData.get(world);
         return data != null && data.isHailActive();
+    }
+    
+    public boolean isInTransition(World world) {
+        WorldProgressionData data = worldProgressionData.get(world);
+        return data != null && data.isInTransition();
     }
 
     // Configuration reload
@@ -523,6 +689,6 @@ public class WeatherProgressionManager {
         if (progressionTask != null) {
             progressionTask.cancel();
         }
-        worldWeatherData.clear();
+        worldProgressionData.clear();
     }
 }
