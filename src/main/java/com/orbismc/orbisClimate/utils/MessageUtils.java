@@ -7,6 +7,7 @@ import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
@@ -50,6 +51,7 @@ public class MessageUtils {
     
     private static final MiniMessage miniMessage = MiniMessage.miniMessage();
     private static final LegacyComponentSerializer legacySerializer = LegacyComponentSerializer.legacySection();
+    private static final PlainTextComponentSerializer plainSerializer = PlainTextComponentSerializer.plainText();
     
     /**
      * Send a message to a command sender using Adventure components
@@ -78,7 +80,7 @@ public class MessageUtils {
     public static Component prefixed(Component message) {
         return Component.text()
                 .append(Component.text("[", MUTED))
-                .append(Component.text("OrbisClimate", PRIMARY, Style.style(TextDecoration.BOLD)))
+                .append(Component.text("OrbisClimate", PRIMARY).style(Style.style(TextDecoration.BOLD)))
                 .append(Component.text("] ", MUTED))
                 .append(message)
                 .build();
@@ -97,7 +99,7 @@ public class MessageUtils {
     public static Component header(String title) {
         return Component.text()
                 .append(Component.text("=== ", ACCENT))
-                .append(Component.text(title, PRIMARY, Style.style(TextDecoration.BOLD)))
+                .append(Component.text(title, PRIMARY).style(Style.style(TextDecoration.BOLD)))
                 .append(Component.text(" ===", ACCENT))
                 .build();
     }
@@ -110,10 +112,10 @@ public class MessageUtils {
     }
     
     /**
-     * Create a simple text component with color and style
+     * Create a simple text component with color and style - FIXED
      */
     public static Component text(String text, TextColor color, Style style) {
-        return Component.text(text, color, style);
+        return Component.text(text, color).style(style);
     }
     
     /**
@@ -307,19 +309,23 @@ public class MessageUtils {
         progress = Math.max(0, Math.min(1, progress)); // Clamp between 0 and 1
         int filled = (int) (progress * length);
         
-        Component.Builder builder = Component.text();
+        StringBuilder filledStr = new StringBuilder();
+        StringBuilder emptyStr = new StringBuilder();
         
         // Filled portion
-        if (filled > 0) {
-            builder.append(Component.text("█".repeat(filled), fillColor));
+        for (int i = 0; i < filled; i++) {
+            filledStr.append("█");
         }
         
         // Empty portion
-        if (filled < length) {
-            builder.append(Component.text("░".repeat(length - filled), emptyColor));
+        for (int i = filled; i < length; i++) {
+            emptyStr.append("░");
         }
         
-        return builder.build();
+        return Component.text()
+                .append(Component.text(filledStr.toString(), fillColor))
+                .append(Component.text(emptyStr.toString(), emptyColor))
+                .build();
     }
     
     /**
@@ -360,5 +366,12 @@ public class MessageUtils {
      */
     public static Component legacy(String legacyText) {
         return legacySerializer.deserialize(legacyText);
+    }
+    
+    /**
+     * Get plain text content from a component - FIXED
+     */
+    public static String getPlainText(Component component) {
+        return plainSerializer.serialize(component);
     }
 }

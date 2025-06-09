@@ -63,8 +63,7 @@ public class InfoCommand extends BaseSubCommand {
         Component zoneLine = Component.text()
                 .append(MessageUtils.text("Climate Zone: ", MessageUtils.INFO))
                 .append(MessageUtils.text(zone.getDisplayName(), 
-                    MessageUtils.getZoneColor(zone.getDisplayName()), 
-                    Style.style(TextDecoration.BOLD)))
+                    MessageUtils.getZoneColor(zone.getDisplayName())).style(Style.style(TextDecoration.BOLD)))
                 .build();
         MessageUtils.send(sender, zoneLine);
 
@@ -83,7 +82,7 @@ public class InfoCommand extends BaseSubCommand {
         Component tempLine = Component.text()
                 .append(MessageUtils.text("Temperature: ", MessageUtils.INFO))
                 .append(MessageUtils.hoverable(
-                    MessageUtils.temperatureDisplay(temperature).content(),
+                    MessageUtils.getPlainText(MessageUtils.temperatureDisplay(temperature)),  // FIXED: Use getPlainText
                     tempHover,
                     MessageUtils.getTemperatureColorFromValue(temperature)
                 ))
@@ -110,8 +109,7 @@ public class InfoCommand extends BaseSubCommand {
         if (climateZoneManager.isPlayerInDrought(player)) {
             Component droughtWarning = Component.text()
                     .append(Component.text("⚠ ", MessageUtils.WARNING))
-                    .append(MessageUtils.text("Drought conditions active in your area!", MessageUtils.ERROR, 
-                        Style.style(TextDecoration.BOLD)))
+                    .append(MessageUtils.text("Drought conditions active in your area!", MessageUtils.ERROR).style(Style.style(TextDecoration.BOLD)))
                     .build();
             MessageUtils.send(sender, droughtWarning);
         }
@@ -200,8 +198,7 @@ public class InfoCommand extends BaseSubCommand {
                 if (plugin.getWeatherProgressionManager().isHailActive(player.getWorld())) {
                     Component hailMsg = Component.text()
                             .append(Component.text("❄ ", NamedTextColor.WHITE))
-                            .append(MessageUtils.text("Hail is currently falling!", NamedTextColor.WHITE, 
-                                Style.style(TextDecoration.BOLD)))
+                            .append(MessageUtils.text("Hail is currently falling!", NamedTextColor.WHITE).style(Style.style(TextDecoration.BOLD)))
                             .build();
                     MessageUtils.send(sender, hailMsg);
                 }

@@ -50,23 +50,32 @@ public class ForecastCommand extends BaseSubCommand {
             Date date = forecast.getDate();
             String dateStr = date.getMonth() + "/" + date.getDay() + "/" + date.getYear();
             
-            Component.Builder headerBuilder = Component.text()
+            // FIXED: Use proper chaining instead of Component.Builder
+            header = Component.text()
                     .append(Component.text("=== ", MessageUtils.ACCENT))
-                    .append(Component.text("Weather Forecast", MessageUtils.PRIMARY, Style.style(TextDecoration.BOLD)))
+                    .append(Component.text("Weather Forecast", MessageUtils.PRIMARY).style(Style.style(TextDecoration.BOLD)))
                     .append(Component.text(" - ", MessageUtils.ACCENT))
-                    .append(Component.text(dateStr, MessageUtils.SECONDARY));
+                    .append(Component.text(dateStr, MessageUtils.SECONDARY))
+                    .build();
 
             if (forecast.getSeason() != null) {
-                headerBuilder.append(Component.text(" (", MessageUtils.MUTED))
+                header = Component.text()
+                        .append(header)
+                        .append(Component.text(" (", MessageUtils.MUTED))
                         .append(Component.text(forecast.getSeason().toString().toLowerCase(), MessageUtils.SECONDARY))
-                        .append(Component.text(")", MessageUtils.MUTED));
+                        .append(Component.text(")", MessageUtils.MUTED))
+                        .append(Component.text(" ===", MessageUtils.ACCENT))
+                        .build();
+            } else {
+                header = Component.text()
+                        .append(header)
+                        .append(Component.text(" ===", MessageUtils.ACCENT))
+                        .build();
             }
-            
-            header = headerBuilder.append(Component.text(" ===", MessageUtils.ACCENT)).build();
         } else {
             header = Component.text()
                     .append(Component.text("=== ", MessageUtils.ACCENT))
-                    .append(Component.text("Weather Forecast", MessageUtils.PRIMARY, Style.style(TextDecoration.BOLD)))
+                    .append(Component.text("Weather Forecast", MessageUtils.PRIMARY).style(Style.style(TextDecoration.BOLD)))
                     .append(Component.text(" - ", MessageUtils.ACCENT))
                     .append(Component.text(forecast.getForecastId(), MessageUtils.SECONDARY))
                     .append(Component.text(" ===", MessageUtils.ACCENT))
@@ -120,8 +129,7 @@ public class ForecastCommand extends BaseSubCommand {
             if (plugin.getWeatherProgressionManager().isHailActive(player.getWorld())) {
                 Component hailMsg = Component.text()
                         .append(Component.text("❄ ", NamedTextColor.WHITE))
-                        .append(MessageUtils.text("Hail is currently falling!", NamedTextColor.WHITE, 
-                            Style.style(TextDecoration.BOLD)))
+                        .append(MessageUtils.text("Hail is currently falling!", NamedTextColor.WHITE).style(Style.style(TextDecoration.BOLD)))
                         .build();
                 MessageUtils.send(player, hailMsg);
             }
@@ -205,7 +213,7 @@ public class ForecastCommand extends BaseSubCommand {
             String dateStr = date.getMonth() + "/" + date.getDay() + "/" + date.getYear();
             header = Component.text()
                     .append(Component.text("=== ", MessageUtils.ACCENT))
-                    .append(Component.text("24-Hour Detailed Forecast", MessageUtils.PRIMARY, Style.style(TextDecoration.BOLD)))
+                    .append(Component.text("24-Hour Detailed Forecast", MessageUtils.PRIMARY).style(Style.style(TextDecoration.BOLD)))
                     .append(Component.text(" - ", MessageUtils.ACCENT))
                     .append(Component.text(dateStr, MessageUtils.SECONDARY))
                     .append(Component.text(" ===", MessageUtils.ACCENT))
@@ -213,7 +221,7 @@ public class ForecastCommand extends BaseSubCommand {
         } else {
             header = Component.text()
                     .append(Component.text("=== ", MessageUtils.ACCENT))
-                    .append(Component.text("24-Hour Detailed Forecast", MessageUtils.PRIMARY, Style.style(TextDecoration.BOLD)))
+                    .append(Component.text("24-Hour Detailed Forecast", MessageUtils.PRIMARY).style(Style.style(TextDecoration.BOLD)))
                     .append(Component.text(" - ", MessageUtils.ACCENT))
                     .append(Component.text(forecast.getForecastId(), MessageUtils.SECONDARY))
                     .append(Component.text(" ===", MessageUtils.ACCENT))
@@ -225,12 +233,11 @@ public class ForecastCommand extends BaseSubCommand {
         int currentHour = getCurrentHour(player, weatherForecast);
         
         // Show enhanced hour-by-hour forecast
-        MessageUtils.send(player, MessageUtils.text("Hour-by-Hour Forecast:", MessageUtils.ACCENT, 
-            Style.style(TextDecoration.BOLD)));
+        MessageUtils.send(player, MessageUtils.text("Hour-by-Hour Forecast:", MessageUtils.ACCENT).style(Style.style(TextDecoration.BOLD)));
         
         // Create forecast grid with enhanced formatting
         for (int startHour = 0; startHour < 24; startHour += 6) {
-            Component.Builder lineBuilder = Component.text();
+            Component lineBuilder = Component.text();
             
             for (int hour = startHour; hour < Math.min(startHour + 6, 24); hour++) {
                 WeatherForecast.WeatherType weather = forecast.getWeatherForHour(hour);
@@ -242,7 +249,7 @@ public class ForecastCommand extends BaseSubCommand {
                 if (isCurrent) {
                     hourComponent = Component.text()
                             .append(Component.text("►", MessageUtils.SUCCESS))
-                            .append(Component.text(String.format("%02d", hour), MessageUtils.SUCCESS, Style.style(TextDecoration.BOLD)))
+                            .append(Component.text(String.format("%02d", hour), MessageUtils.SUCCESS).style(Style.style(TextDecoration.BOLD)))
                             .append(Component.text(":", MessageUtils.SUCCESS))
                             .append(MessageUtils.weatherSymbol(weather.getDisplayName()))
                             .build();
@@ -262,10 +269,10 @@ public class ForecastCommand extends BaseSubCommand {
                             .build();
                 }
                 
-                lineBuilder.append(hourComponent).append(Component.text(" "));
+                lineBuilder = lineBuilder.append(hourComponent).append(Component.text(" "));
             }
             
-            MessageUtils.send(player, lineBuilder.build());
+            MessageUtils.send(player, lineBuilder);
         }
         
         // Enhanced legend with better formatting
