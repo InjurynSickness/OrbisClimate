@@ -1,10 +1,12 @@
-// Performance Command - PerformanceCommand.java
 package com.orbismc.orbisClimate.commands.subcommands;
 
 import com.orbismc.orbisClimate.OrbisClimate;
 import com.orbismc.orbisClimate.PerformanceMonitor;
+import com.orbismc.orbisClimate.utils.MessageUtils;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.Style;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 
 import java.util.Arrays;
@@ -21,7 +23,7 @@ public class PerformanceCommand extends BaseSubCommand {
         PerformanceMonitor monitor = plugin.getPerformanceMonitor();
 
         if (monitor == null) {
-            sender.sendMessage(ChatColor.RED + "Performance monitoring is not available!");
+            MessageUtils.send(sender, MessageUtils.error("Performance monitoring is not available!"));
             return true;
         }
 
@@ -40,35 +42,108 @@ public class PerformanceCommand extends BaseSubCommand {
             case "clear":
                 return handleClear(sender, monitor);
             default:
-                sender.sendMessage(ChatColor.RED + "Unknown performance command! Use '/climate performance' for help.");
+                MessageUtils.send(sender, MessageUtils.error("Unknown performance command! Use '/climate performance' for help."));
                 return true;
         }
     }
 
     private void showPerformanceHelp(CommandSender sender) {
-        sender.sendMessage(ChatColor.GOLD + "=== Performance Commands ===");
-        sender.sendMessage(ChatColor.YELLOW + "/climate performance report " + ChatColor.WHITE + "- Show performance report");
-        sender.sendMessage(ChatColor.YELLOW + "/climate performance mode [on|off] " + ChatColor.WHITE + "- Toggle performance mode");
-        sender.sendMessage(ChatColor.YELLOW + "/climate performance optimize " + ChatColor.WHITE + "- Run optimization");
-        sender.sendMessage(ChatColor.YELLOW + "/climate performance clear " + ChatColor.WHITE + "- Clear performance data");
+        MessageUtils.send(sender, MessageUtils.header("Performance Commands"));
+        
+        // Enhanced command list with clickable commands
+        Component reportCmd = Component.text()
+                .append(MessageUtils.clickableCommand("/climate performance report", 
+                    "/climate performance report", MessageUtils.ACCENT))
+                .append(MessageUtils.text(" - Show performance report", MessageUtils.MUTED))
+                .build();
+        MessageUtils.send(sender, reportCmd);
+        
+        Component modeCmd = Component.text()
+                .append(MessageUtils.clickableCommand("/climate performance mode [on|off]", 
+                    "/climate performance mode", MessageUtils.ACCENT))
+                .append(MessageUtils.text(" - Toggle performance mode", MessageUtils.MUTED))
+                .build();
+        MessageUtils.send(sender, modeCmd);
+        
+        Component optimizeCmd = Component.text()
+                .append(MessageUtils.clickableCommand("/climate performance optimize", 
+                    "/climate performance optimize", MessageUtils.ACCENT))
+                .append(MessageUtils.text(" - Run optimization", MessageUtils.MUTED))
+                .build();
+        MessageUtils.send(sender, optimizeCmd);
+        
+        Component clearCmd = Component.text()
+                .append(MessageUtils.clickableCommand("/climate performance clear", 
+                    "/climate performance clear", MessageUtils.ACCENT))
+                .append(MessageUtils.text(" - Clear performance data", MessageUtils.MUTED))
+                .build();
+        MessageUtils.send(sender, clearCmd);
     }
 
     private boolean handleReport(CommandSender sender, PerformanceMonitor monitor) {
-        String report = monitor.getPerformanceReport();
-        sender.sendMessage(report);
-
-        // Add additional server info
+        // Parse the performance report and enhance it with Adventure formatting
+        String rawReport = monitor.getPerformanceReport();
+        
+        MessageUtils.send(sender, MessageUtils.header("OrbisClimate Performance Report"));
+        
+        // Current TPS with color coding
+        double tps = monitor.getCurrentTPS();
+        Component tpsLine = Component.text()
+                .append(MessageUtils.text("TPS: ", MessageUtils.INFO))
+                .append(MessageUtils.text(String.format("%.2f", tps), getTpsColor(tps), Style.style(TextDecoration.BOLD)))
+                .append(MessageUtils.text(" (threshold: 18.0)", MessageUtils.MUTED))
+                .build();
+        MessageUtils.send(sender, tpsLine);
+        
+        // Memory usage
         Runtime runtime = Runtime.getRuntime();
         long maxMemory = runtime.maxMemory() / 1024 / 1024;
         long totalMemory = runtime.totalMemory() / 1024 / 1024;
         long freeMemory = runtime.freeMemory() / 1024 / 1024;
         long usedMemory = totalMemory - freeMemory;
+        double memoryPercent = (double) usedMemory / maxMemory * 100;
+        
+        Component memoryLine = Component.text()
+                .append(MessageUtils.text("Memory: ", MessageUtils.INFO))
+                .append(MessageUtils.text(String.format("%.1f%%", memoryPercent), getMemoryColor(memoryPercent)))
+                .append(MessageUtils.text(" (" + usedMemory + "MB/" + maxMemory + "MB)", MessageUtils.MUTED))
+                .build();
+        MessageUtils.send(sender, memoryLine);
+        
+        // Performance mode status
+        boolean performanceMode = monitor.isPerformanceMode();
+        Component perfModeIcon = performanceMode ? 
+            Component.text("⚠ ", MessageUtils.WARNING) : 
+            Component.text("✓ ", MessageUtils.SUCCESS);
+        
+        Component perfModeLine = Component.text()
+                .append(MessageUtils.text("Performance Mode: ", MessageUtils.INFO))
+                .append(perfModeIcon)
+                .append(MessageUtils.text(performanceMode ? "Active" : "Inactive", 
+                    performanceMode ? MessageUtils.WARNING : MessageUtils.SUCCESS))
+                .build();
+        MessageUtils.send(sender, perfModeLine);
+        
+        // Effect multiplier
+        double multiplier = monitor.getPerformanceMultiplier();
+        Component multiplierLine = Component.text()
+                .append(MessageUtils.text("Effect Multiplier: ", MessageUtils.INFO))
+                .append(MessageUtils.text(String.format("%.1fx", multiplier), 
+                    multiplier >= 1.0 ? MessageUtils.SUCCESS : 
+                    multiplier >= 0.5 ? MessageUtils.WARNING : MessageUtils.ERROR))
+                .build();
+        MessageUtils.send(sender, multiplierLine);
 
-        sender.sendMessage(ChatColor.AQUA + "Server Info:");
-        sender.sendMessage(ChatColor.WHITE + "  Online Players: " + Bukkit.getOnlinePlayers().size());
-        sender.sendMessage(ChatColor.WHITE + "  Max Memory: " + maxMemory + "MB");
-        sender.sendMessage(ChatColor.WHITE + "  Used Memory: " + usedMemory + "MB");
-        sender.sendMessage(ChatColor.WHITE + "  Free Memory: " + freeMemory + "MB");
+        // Additional server info
+        MessageUtils.send(sender, Component.text(""));
+        MessageUtils.send(sender, MessageUtils.text("Server Information:", MessageUtils.INFO, 
+            Style.style(TextDecoration.BOLD)));
+        
+        MessageUtils.send(sender, MessageUtils.infoLine("Online Players", 
+            String.valueOf(Bukkit.getOnlinePlayers().size()), MessageUtils.ACCENT));
+        MessageUtils.send(sender, MessageUtils.infoLine("Max Memory", maxMemory + "MB"));
+        MessageUtils.send(sender, MessageUtils.infoLine("Used Memory", usedMemory + "MB"));
+        MessageUtils.send(sender, MessageUtils.infoLine("Free Memory", freeMemory + "MB"));
 
         return true;
     }
@@ -76,8 +151,12 @@ public class PerformanceCommand extends BaseSubCommand {
     private boolean handleMode(CommandSender sender, PerformanceMonitor monitor, String[] args) {
         if (args.length < 2) {
             boolean isActive = monitor.isPerformanceMode();
-            sender.sendMessage(ChatColor.AQUA + "Performance Mode: " +
-                    (isActive ? ChatColor.RED + "ACTIVE" : ChatColor.GREEN + "INACTIVE"));
+            Component statusLine = Component.text()
+                    .append(MessageUtils.text("Performance Mode: ", MessageUtils.INFO))
+                    .append(MessageUtils.text(isActive ? "Active" : "Inactive", 
+                        isActive ? MessageUtils.WARNING : MessageUtils.SUCCESS))
+                    .build();
+            MessageUtils.send(sender, statusLine);
             return true;
         }
 
@@ -86,21 +165,37 @@ public class PerformanceCommand extends BaseSubCommand {
         if (enable && !monitor.isPerformanceMode()) {
             // Force enable performance mode
             monitor.enterPerformanceMode();
-            sender.sendMessage(ChatColor.GREEN + "Performance mode enabled!");
+            Component enableMsg = Component.text()
+                    .append(Component.text("✓ ", MessageUtils.SUCCESS))
+                    .append(MessageUtils.text("Performance mode enabled!", MessageUtils.SUCCESS))
+                    .build();
+            MessageUtils.send(sender, enableMsg);
         } else if (!enable && monitor.isPerformanceMode()) {
             // Force disable performance mode
             monitor.exitPerformanceMode();
-            sender.sendMessage(ChatColor.GREEN + "Performance mode disabled!");
+            Component disableMsg = Component.text()
+                    .append(Component.text("✓ ", MessageUtils.SUCCESS))
+                    .append(MessageUtils.text("Performance mode disabled!", MessageUtils.SUCCESS))
+                    .build();
+            MessageUtils.send(sender, disableMsg);
         } else {
-            sender.sendMessage(ChatColor.YELLOW + "Performance mode is already " +
-                    (enable ? "enabled" : "disabled"));
+            Component alreadyMsg = Component.text()
+                    .append(Component.text("ℹ ", MessageUtils.INFO))
+                    .append(MessageUtils.text("Performance mode is already " + (enable ? "enabled" : "disabled"), 
+                        MessageUtils.MUTED))
+                    .build();
+            MessageUtils.send(sender, alreadyMsg);
         }
 
         return true;
     }
 
     private boolean handleOptimize(CommandSender sender, PerformanceMonitor monitor) {
-        sender.sendMessage(ChatColor.YELLOW + "Running optimization...");
+        Component optimizingMsg = Component.text()
+                .append(Component.text("🔄 ", MessageUtils.WARNING))
+                .append(MessageUtils.text("Running optimization...", MessageUtils.WARNING))
+                .build();
+        MessageUtils.send(sender, optimizingMsg);
 
         // Run various optimization tasks
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
@@ -121,22 +216,38 @@ public class PerformanceCommand extends BaseSubCommand {
 
                 // Send result back on main thread
                 Bukkit.getScheduler().runTask(plugin, () -> {
-                    sender.sendMessage(ChatColor.GREEN + "Optimization complete!");
+                    Component successMsg = Component.text()
+                            .append(Component.text("✓ ", MessageUtils.SUCCESS))
+                            .append(MessageUtils.text("Optimization complete!", MessageUtils.SUCCESS))
+                            .build();
+                    MessageUtils.send(sender, successMsg);
 
                     if (monitor != null) {
                         double tps = monitor.getCurrentTPS();
-                        sender.sendMessage(ChatColor.GRAY + "Current TPS: " + String.format("%.2f", tps));
+                        Component tpsInfo = Component.text()
+                                .append(MessageUtils.text("Current TPS: ", MessageUtils.MUTED))
+                                .append(MessageUtils.text(String.format("%.2f", tps), getTpsColor(tps)))
+                                .build();
+                        MessageUtils.send(sender, tpsInfo);
 
                         // Show memory improvement
                         Runtime runtime = Runtime.getRuntime();
                         long freeMemory = runtime.freeMemory() / 1024 / 1024;
-                        sender.sendMessage(ChatColor.GRAY + "Free Memory: " + freeMemory + "MB");
+                        Component memInfo = Component.text()
+                                .append(MessageUtils.text("Free Memory: ", MessageUtils.MUTED))
+                                .append(MessageUtils.text(freeMemory + "MB", MessageUtils.SUCCESS))
+                                .build();
+                        MessageUtils.send(sender, memInfo);
                     }
                 });
 
             } catch (Exception e) {
                 Bukkit.getScheduler().runTask(plugin, () -> {
-                    sender.sendMessage(ChatColor.RED + "Optimization failed: " + e.getMessage());
+                    Component errorMsg = Component.text()
+                            .append(Component.text("✗ ", MessageUtils.ERROR))
+                            .append(MessageUtils.text("Optimization failed: " + e.getMessage(), MessageUtils.ERROR))
+                            .build();
+                    MessageUtils.send(sender, errorMsg);
                 });
             }
         });
@@ -146,8 +257,24 @@ public class PerformanceCommand extends BaseSubCommand {
 
     private boolean handleClear(CommandSender sender, PerformanceMonitor monitor) {
         monitor.clearAllData();
-        sender.sendMessage(ChatColor.GREEN + "Performance data cleared!");
+        Component clearMsg = Component.text()
+                .append(Component.text("✓ ", MessageUtils.SUCCESS))
+                .append(MessageUtils.text("Performance data cleared!", MessageUtils.SUCCESS))
+                .build();
+        MessageUtils.send(sender, clearMsg);
         return true;
+    }
+    
+    private net.kyori.adventure.text.format.TextColor getTpsColor(double tps) {
+        if (tps >= 19.5) return MessageUtils.SUCCESS;
+        if (tps >= 18.0) return MessageUtils.WARNING;
+        return MessageUtils.ERROR;
+    }
+    
+    private net.kyori.adventure.text.format.TextColor getMemoryColor(double percentage) {
+        if (percentage <= 70) return MessageUtils.SUCCESS;
+        if (percentage <= 85) return MessageUtils.WARNING;
+        return MessageUtils.ERROR;
     }
 
     @Override

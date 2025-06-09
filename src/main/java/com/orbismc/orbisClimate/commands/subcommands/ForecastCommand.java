@@ -3,8 +3,12 @@ package com.orbismc.orbisClimate.commands.subcommands;
 import com.orbismc.orbisClimate.OrbisClimate;
 import com.orbismc.orbisClimate.WeatherForecast;
 import com.orbismc.orbisClimate.WeatherProgressionManager;
+import com.orbismc.orbisClimate.utils.MessageUtils;
 import me.casperge.realisticseasons.calendar.Date;
-import org.bukkit.ChatColor;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.Style;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
@@ -36,68 +40,94 @@ public class ForecastCommand extends BaseSubCommand {
         WeatherForecast.DetailedForecast forecast = weatherForecast.getForecast(player.getWorld());
 
         if (forecast == null) {
-            player.sendMessage(ChatColor.RED + "No forecast available for this world yet!");
+            MessageUtils.send(player, MessageUtils.error("No forecast available for this world yet!"));
             return true;
         }
 
-        // Build header with date and season info
-        String headerText = "=== Weather Forecast";
-
+        // Build enhanced header with date and season info
+        Component header;
         if (weatherForecast.isRealisticSeasonsEnabled() && forecast.getDate() != null) {
             Date date = forecast.getDate();
             String dateStr = date.getMonth() + "/" + date.getDay() + "/" + date.getYear();
-            headerText += " - " + dateStr;
+            
+            Component.Builder headerBuilder = Component.text()
+                    .append(Component.text("=== ", MessageUtils.ACCENT))
+                    .append(Component.text("Weather Forecast", MessageUtils.PRIMARY, Style.style(TextDecoration.BOLD)))
+                    .append(Component.text(" - ", MessageUtils.ACCENT))
+                    .append(Component.text(dateStr, MessageUtils.SECONDARY));
 
             if (forecast.getSeason() != null) {
-                headerText += " (" + forecast.getSeason().toString().toLowerCase() + ")";
+                headerBuilder.append(Component.text(" (", MessageUtils.MUTED))
+                        .append(Component.text(forecast.getSeason().toString().toLowerCase(), MessageUtils.SECONDARY))
+                        .append(Component.text(")", MessageUtils.MUTED));
             }
+            
+            header = headerBuilder.append(Component.text(" ===", MessageUtils.ACCENT)).build();
         } else {
-            headerText += " - " + forecast.getForecastId();
+            header = Component.text()
+                    .append(Component.text("=== ", MessageUtils.ACCENT))
+                    .append(Component.text("Weather Forecast", MessageUtils.PRIMARY, Style.style(TextDecoration.BOLD)))
+                    .append(Component.text(" - ", MessageUtils.ACCENT))
+                    .append(Component.text(forecast.getForecastId(), MessageUtils.SECONDARY))
+                    .append(Component.text(" ===", MessageUtils.ACCENT))
+                    .build();
         }
 
-        headerText += " ===";
-        player.sendMessage(ChatColor.GOLD + headerText);
+        MessageUtils.send(player, header);
 
-        // Show forecast periods
-        player.sendMessage(ChatColor.YELLOW + "Morning (6AM-12PM): " + ChatColor.WHITE +
-                forecast.getMorningWeather().getDisplayName());
-        player.sendMessage(ChatColor.YELLOW + "Afternoon (12PM-6PM): " + ChatColor.WHITE +
-                forecast.getAfternoonWeather().getDisplayName());
-        player.sendMessage(ChatColor.YELLOW + "Evening (6PM-12AM): " + ChatColor.WHITE +
-                forecast.getEveningWeather().getDisplayName());
-        player.sendMessage(ChatColor.YELLOW + "Night (12AM-6AM): " + ChatColor.WHITE +
-                forecast.getNightWeather().getDisplayName());
+        // Show enhanced forecast periods with weather symbols and colors
+        showForecastPeriod(player, "Morning (6AM-12PM)", forecast.getMorningWeather());
+        showForecastPeriod(player, "Afternoon (12PM-6PM)", forecast.getAfternoonWeather());
+        showForecastPeriod(player, "Evening (6PM-12AM)", forecast.getEveningWeather());
+        showForecastPeriod(player, "Night (12AM-6AM)", forecast.getNightWeather());
 
-        // Show current status
+        // Show current status with enhanced formatting
         WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(player.getWorld());
         int currentHour = getCurrentHour(player, weatherForecast);
         
-        player.sendMessage(ChatColor.AQUA + "Current Time: " + ChatColor.WHITE + 
-            String.format("%02d:00", currentHour));
-        player.sendMessage(ChatColor.AQUA + "Current Weather: " + ChatColor.WHITE + 
-            currentWeather.getDisplayName());
+        MessageUtils.send(player, MessageUtils.infoLine("Current Time", 
+            String.format("%02d:00", currentHour), MessageUtils.ACCENT));
         
-        // NEW: Show weather progression status
+        Component currentWeatherLine = Component.text()
+                .append(MessageUtils.text("Current Weather: ", MessageUtils.INFO))
+                .append(MessageUtils.weatherSymbol(currentWeather.getDisplayName()))
+                .append(Component.text(" "))
+                .append(MessageUtils.text(currentWeather.getDisplayName(), 
+                    MessageUtils.getWeatherColor(currentWeather.getDisplayName())))
+                .build();
+        MessageUtils.send(player, currentWeatherLine);
+        
+        // Enhanced weather progression status
         if (plugin.getWeatherProgressionManager() != null) {
             WeatherProgressionManager.WeatherProgression progression =
                     plugin.getWeatherProgressionManager().getWorldProgression(player.getWorld());
             if (progression != WeatherProgressionManager.WeatherProgression.CLEAR) {
-                player.sendMessage(ChatColor.AQUA + "Weather Stage: " + ChatColor.WHITE +
-                        progression.name().toLowerCase().replace("_", " "));
+                String progressionName = progression.name().toLowerCase().replace("_", " ");
+                MessageUtils.send(player, MessageUtils.infoLine("Weather Stage", progressionName, MessageUtils.ACCENT));
             }
             
-            // Show transition status
+            // Show transition status with enhanced formatting
             if (plugin.getWeatherProgressionManager().isInTransition(player.getWorld())) {
-                player.sendMessage(ChatColor.YELLOW + "Status: Weather is transitioning");
+                Component transitionMsg = Component.text()
+                        .append(Component.text("Status: ", MessageUtils.INFO))
+                        .append(Component.text("⚡ ", MessageUtils.WARNING))
+                        .append(MessageUtils.text("Weather is transitioning", MessageUtils.WARNING))
+                        .build();
+                MessageUtils.send(player, transitionMsg);
             }
 
-            // Show special effects
+            // Show special effects with enhanced formatting
             if (plugin.getWeatherProgressionManager().isHailActive(player.getWorld())) {
-                player.sendMessage(ChatColor.WHITE + "❄ Hail is currently falling!");
+                Component hailMsg = Component.text()
+                        .append(Component.text("❄ ", NamedTextColor.WHITE))
+                        .append(MessageUtils.text("Hail is currently falling!", NamedTextColor.WHITE, 
+                            Style.style(TextDecoration.BOLD)))
+                        .build();
+                MessageUtils.send(player, hailMsg);
             }
         }
         
-        // Show next transition if any
+        // Show next transition with enhanced display
         WeatherForecast.WeatherType nextWeather = getNextTransition(forecast, currentHour);
         if (nextWeather != null && !nextWeather.equals(currentWeather)) {
             int nextTransitionHour = getNextTransitionHour(forecast, currentHour);
@@ -109,105 +139,194 @@ public class ForecastCommand extends BaseSubCommand {
                              hoursUntil == 1 ? "next hour" : 
                              "in " + hoursUntil + " hours";
             
-            player.sendMessage(ChatColor.GRAY + "Next change: " + nextWeather.getDisplayName() + 
-                " " + timeDesc + " (" + String.format("%02d:00", nextTransitionHour) + ")");
+            Component nextChangeMsg = Component.text()
+                    .append(MessageUtils.text("Next change: ", MessageUtils.MUTED))
+                    .append(MessageUtils.weatherSymbol(nextWeather.getDisplayName()))
+                    .append(Component.text(" "))
+                    .append(MessageUtils.text(nextWeather.getDisplayName(), 
+                        MessageUtils.getWeatherColor(nextWeather.getDisplayName())))
+                    .append(MessageUtils.text(" " + timeDesc + " (", MessageUtils.MUTED))
+                    .append(MessageUtils.text(String.format("%02d:00", nextTransitionHour), MessageUtils.ACCENT))
+                    .append(MessageUtils.text(")", MessageUtils.MUTED))
+                    .build();
+            MessageUtils.send(player, nextChangeMsg);
                 
-            // NEW: Show if progression system will give warnings
+            // Enhanced progression system warnings
             if (plugin.getWeatherProgressionManager() != null && hoursUntil <= 3) {
                 boolean isStormWeather = nextWeather == WeatherForecast.WeatherType.THUNDERSTORM ||
                                        nextWeather == WeatherForecast.WeatherType.BLIZZARD ||
                                        nextWeather == WeatherForecast.WeatherType.SANDSTORM;
                 
                 if (isStormWeather && plugin.getConfig().getBoolean("weather_progression.pre_storm_effects.enabled", true)) {
-                    player.sendMessage(ChatColor.GRAY + "  (Storm warnings will begin beforehand)");
+                    Component stormWarning = Component.text()
+                            .append(Component.text("  ", NamedTextColor.WHITE))
+                            .append(Component.text("⚡ ", MessageUtils.WARNING))
+                            .append(MessageUtils.text("Storm warnings will begin beforehand", MessageUtils.MUTED))
+                            .build();
+                    MessageUtils.send(player, stormWarning);
                 }
             }
         }
         
-        // Show detailed option
-        player.sendMessage(ChatColor.GRAY + "Use '/climate forecast detailed' for hour-by-hour forecast");
+        // Show clickable detailed option
+        Component detailedOption = Component.text()
+                .append(MessageUtils.text("Use ", MessageUtils.MUTED))
+                .append(MessageUtils.clickableCommand("detailed forecast", "/climate forecast detailed", MessageUtils.ACCENT))
+                .append(MessageUtils.text(" for hour-by-hour forecast", MessageUtils.MUTED))
+                .build();
+        MessageUtils.send(player, detailedOption);
 
         return true;
+    }
+    
+    private void showForecastPeriod(Player player, String period, WeatherForecast.WeatherType weather) {
+        Component periodLine = Component.text()
+                .append(MessageUtils.text(period + ": ", MessageUtils.ACCENT))
+                .append(MessageUtils.weatherSymbol(weather.getDisplayName()))
+                .append(Component.text(" "))
+                .append(MessageUtils.text(weather.getDisplayName(), 
+                    MessageUtils.getWeatherColor(weather.getDisplayName())))
+                .build();
+        MessageUtils.send(player, periodLine);
     }
     
     private boolean showDetailedForecast(Player player, WeatherForecast weatherForecast) {
         WeatherForecast.DetailedForecast forecast = weatherForecast.getForecast(player.getWorld());
 
         if (forecast == null) {
-            player.sendMessage(ChatColor.RED + "No detailed forecast available for this world yet!");
+            MessageUtils.send(player, MessageUtils.error("No detailed forecast available for this world yet!"));
             return true;
         }
         
-        // Header
-        String headerText = "=== 24-Hour Detailed Forecast";
+        // Enhanced header
+        Component header;
         if (weatherForecast.isRealisticSeasonsEnabled() && forecast.getDate() != null) {
             Date date = forecast.getDate();
             String dateStr = date.getMonth() + "/" + date.getDay() + "/" + date.getYear();
-            headerText += " - " + dateStr;
+            header = Component.text()
+                    .append(Component.text("=== ", MessageUtils.ACCENT))
+                    .append(Component.text("24-Hour Detailed Forecast", MessageUtils.PRIMARY, Style.style(TextDecoration.BOLD)))
+                    .append(Component.text(" - ", MessageUtils.ACCENT))
+                    .append(Component.text(dateStr, MessageUtils.SECONDARY))
+                    .append(Component.text(" ===", MessageUtils.ACCENT))
+                    .build();
         } else {
-            headerText += " - " + forecast.getForecastId();
+            header = Component.text()
+                    .append(Component.text("=== ", MessageUtils.ACCENT))
+                    .append(Component.text("24-Hour Detailed Forecast", MessageUtils.PRIMARY, Style.style(TextDecoration.BOLD)))
+                    .append(Component.text(" - ", MessageUtils.ACCENT))
+                    .append(Component.text(forecast.getForecastId(), MessageUtils.SECONDARY))
+                    .append(Component.text(" ===", MessageUtils.ACCENT))
+                    .build();
         }
-        headerText += " ===";
         
-        player.sendMessage(ChatColor.GOLD + headerText);
+        MessageUtils.send(player, header);
         
         int currentHour = getCurrentHour(player, weatherForecast);
         
-        // Show hour-by-hour forecast in groups
-        player.sendMessage(ChatColor.YELLOW + "Hour-by-Hour Forecast:");
+        // Show enhanced hour-by-hour forecast
+        MessageUtils.send(player, MessageUtils.text("Hour-by-Hour Forecast:", MessageUtils.ACCENT, 
+            Style.style(TextDecoration.BOLD)));
         
-        StringBuilder line = new StringBuilder();
-        for (int hour = 0; hour < 24; hour++) {
-            WeatherForecast.WeatherType weather = forecast.getWeatherForHour(hour);
-            boolean isTransition = forecast.isTransitionHour(hour);
-            boolean isCurrent = (hour == currentHour);
+        // Create forecast grid with enhanced formatting
+        for (int startHour = 0; startHour < 24; startHour += 6) {
+            Component.Builder lineBuilder = Component.text();
             
-            // Color coding
-            String hourColor = isCurrent ? ChatColor.GREEN.toString() : 
-                              isTransition ? ChatColor.YELLOW.toString() : 
-                              ChatColor.WHITE.toString();
-            
-            String marker = isCurrent ? "►" : isTransition ? "•" : " ";
-            
-            line.append(hourColor).append(String.format("%s%02d:%s", marker, hour, 
-                getWeatherSymbol(weather))).append(" ");
-            
-            // Break line every 6 hours for readability
-            if ((hour + 1) % 6 == 0) {
-                player.sendMessage(line.toString());
-                line = new StringBuilder();
+            for (int hour = startHour; hour < Math.min(startHour + 6, 24); hour++) {
+                WeatherForecast.WeatherType weather = forecast.getWeatherForHour(hour);
+                boolean isTransition = forecast.isTransitionHour(hour);
+                boolean isCurrent = (hour == currentHour);
+                
+                // Enhanced formatting with icons and colors
+                Component hourComponent;
+                if (isCurrent) {
+                    hourComponent = Component.text()
+                            .append(Component.text("►", MessageUtils.SUCCESS))
+                            .append(Component.text(String.format("%02d", hour), MessageUtils.SUCCESS, Style.style(TextDecoration.BOLD)))
+                            .append(Component.text(":", MessageUtils.SUCCESS))
+                            .append(MessageUtils.weatherSymbol(weather.getDisplayName()))
+                            .build();
+                } else if (isTransition) {
+                    hourComponent = Component.text()
+                            .append(Component.text("•", MessageUtils.WARNING))
+                            .append(Component.text(String.format("%02d", hour), MessageUtils.WARNING))
+                            .append(Component.text(":", MessageUtils.WARNING))
+                            .append(MessageUtils.weatherSymbol(weather.getDisplayName()))
+                            .build();
+                } else {
+                    hourComponent = Component.text()
+                            .append(Component.text(" ", NamedTextColor.WHITE))
+                            .append(Component.text(String.format("%02d", hour), NamedTextColor.WHITE))
+                            .append(Component.text(":", NamedTextColor.WHITE))
+                            .append(MessageUtils.weatherSymbol(weather.getDisplayName()))
+                            .build();
+                }
+                
+                lineBuilder.append(hourComponent).append(Component.text(" "));
             }
+            
+            MessageUtils.send(player, lineBuilder.build());
         }
         
-        if (line.length() > 0) {
-            player.sendMessage(line.toString());
-        }
+        // Enhanced legend with better formatting
+        Component legend = Component.text()
+                .append(MessageUtils.text("Legend: ", MessageUtils.MUTED))
+                .append(Component.text("►", MessageUtils.SUCCESS))
+                .append(MessageUtils.text(" Current", MessageUtils.SUCCESS))
+                .append(MessageUtils.text(" | ", MessageUtils.MUTED))
+                .append(Component.text("•", MessageUtils.WARNING))
+                .append(MessageUtils.text(" Transition", MessageUtils.WARNING))
+                .append(MessageUtils.text(" | ", MessageUtils.MUTED))
+                .append(MessageUtils.text("  Regular", NamedTextColor.WHITE))
+                .build();
+        MessageUtils.send(player, legend);
         
-        // Legend
-        player.sendMessage(ChatColor.GRAY + "Legend: " + ChatColor.GREEN + "► Current" + 
-            ChatColor.GRAY + " | " + ChatColor.YELLOW + "• Transition" + 
-            ChatColor.GRAY + " | " + ChatColor.WHITE + "  Regular");
+        // Weather symbols legend with clickable hover info
+        Component symbolsLegend = Component.text()
+                .append(MessageUtils.text("Symbols: ", MessageUtils.MUTED))
+                .append(MessageUtils.hoverable("☀ Clear", "Clear skies", MessageUtils.WEATHER_CLEAR))
+                .append(MessageUtils.text(" | ", MessageUtils.MUTED))
+                .append(MessageUtils.hoverable("🌧 Rain", "Light/Heavy Rain", MessageUtils.WEATHER_RAIN))
+                .append(MessageUtils.text(" | ", MessageUtils.MUTED))
+                .append(MessageUtils.hoverable("⛈ Storm", "Thunderstorm", MessageUtils.WEATHER_STORM))
+                .append(MessageUtils.text(" | ", MessageUtils.MUTED))
+                .append(MessageUtils.hoverable("❄ Snow", "Snow/Blizzard", MessageUtils.WEATHER_SNOW))
+                .append(MessageUtils.text(" | ", MessageUtils.MUTED))
+                .append(MessageUtils.hoverable("🌵 Sand", "Sandstorm", MessageUtils.WEATHER_SAND))
+                .build();
+        MessageUtils.send(player, symbolsLegend);
         
-        player.sendMessage(ChatColor.GRAY + "Symbols: ☀ Clear | 🌧 Rain | ⛈ Storm | ❄ Snow | 🌪 Blizzard | 🌵 Sand");
-        
-        // Current status
+        // Current status with enhanced formatting
         WeatherForecast.WeatherType currentWeather = weatherForecast.getCurrentWeather(player.getWorld());
-        player.sendMessage(ChatColor.AQUA + "Currently: " + ChatColor.WHITE + 
-            currentWeather.getDisplayName() + " at " + String.format("%02d:00", currentHour));
+        Component currentStatus = Component.text()
+                .append(MessageUtils.text("Currently: ", MessageUtils.INFO))
+                .append(MessageUtils.weatherSymbol(currentWeather.getDisplayName()))
+                .append(Component.text(" "))
+                .append(MessageUtils.text(currentWeather.getDisplayName(), 
+                    MessageUtils.getWeatherColor(currentWeather.getDisplayName())))
+                .append(MessageUtils.text(" at ", MessageUtils.MUTED))
+                .append(MessageUtils.text(String.format("%02d:00", currentHour), MessageUtils.ACCENT))
+                .build();
+        MessageUtils.send(player, currentStatus);
         
-        // NEW: Add progression status to detailed forecast
+        // Enhanced progression status for detailed forecast
         if (plugin.getWeatherProgressionManager() != null) {
             WeatherProgressionManager.WeatherProgression progression = 
                 plugin.getWeatherProgressionManager().getWorldProgression(player.getWorld());
                 
-            player.sendMessage(ChatColor.AQUA + "Progression Stage: " + ChatColor.WHITE + 
-                progression.name().toLowerCase().replace("_", " "));
+            String progressionName = progression.name().toLowerCase().replace("_", " ");
+            MessageUtils.send(player, MessageUtils.infoLine("Progression Stage", progressionName, MessageUtils.ACCENT));
             
             if (plugin.getWeatherProgressionManager().isInTransition(player.getWorld())) {
-                player.sendMessage(ChatColor.YELLOW + "Status: Weather transition in progress");
+                Component transitionStatus = Component.text()
+                        .append(MessageUtils.text("Status: ", MessageUtils.INFO))
+                        .append(Component.text("⚡ ", MessageUtils.WARNING))
+                        .append(MessageUtils.text("Weather transition in progress", MessageUtils.WARNING))
+                        .build();
+                MessageUtils.send(player, transitionStatus);
             }
             
-            // Show upcoming progression events
+            // Show upcoming progression events with enhanced formatting
             for (int lookAhead = 1; lookAhead <= 3; lookAhead++) {
                 int futureHour = (currentHour + lookAhead) % 24;
                 
@@ -219,8 +338,15 @@ public class ForecastCommand extends BaseSubCommand {
                     
                     if (isStormWeather) {
                         String timeDesc = lookAhead == 1 ? "next hour" : "in " + lookAhead + " hours";
-                        player.sendMessage(ChatColor.GRAY + "Storm warnings will begin before " + 
-                            upcomingWeather.getDisplayName() + " arrives " + timeDesc);
+                        Component stormWarning = Component.text()
+                                .append(MessageUtils.text("Storm warnings will begin before ", MessageUtils.MUTED))
+                                .append(MessageUtils.weatherSymbol(upcomingWeather.getDisplayName()))
+                                .append(Component.text(" "))
+                                .append(MessageUtils.text(upcomingWeather.getDisplayName(), 
+                                    MessageUtils.getWeatherColor(upcomingWeather.getDisplayName())))
+                                .append(MessageUtils.text(" arrives " + timeDesc, MessageUtils.MUTED))
+                                .build();
+                        MessageUtils.send(player, stormWarning);
                         break;
                     }
                 }
@@ -228,28 +354,6 @@ public class ForecastCommand extends BaseSubCommand {
         }
         
         return true;
-    }
-    
-    private String getWeatherSymbol(WeatherForecast.WeatherType weather) {
-        switch (weather) {
-            case CLEAR: return "☀";
-            case LIGHT_RAIN: return "🌦";
-            case HEAVY_RAIN: return "🌧";
-            case THUNDERSTORM: return "⛈";
-            case SNOW: return "❄";
-            case BLIZZARD: return "🌪";
-            case SANDSTORM: return "🌵";
-            default: return "?";
-        }
-    }
-    
-    private int getCurrentHour(Player player, WeatherForecast weatherForecast) {
-        if (weatherForecast.isRealisticSeasonsEnabled()) {
-            return plugin.getWeatherForecast().getCurrentHour(player.getWorld());
-        } else {
-            long timeOfDay = player.getWorld().getTime() % 24000;
-            return (int) ((timeOfDay + 6000) / 1000) % 24;
-        }
     }
     
     private WeatherForecast.WeatherType getNextTransition(WeatherForecast.DetailedForecast forecast, int currentHour) {
@@ -280,6 +384,15 @@ public class ForecastCommand extends BaseSubCommand {
             }
         }
         return -1;
+    }
+    
+    private int getCurrentHour(Player player, WeatherForecast weatherForecast) {
+        if (weatherForecast.isRealisticSeasonsEnabled()) {
+            return plugin.getWeatherForecast().getCurrentHour(player.getWorld());
+        } else {
+            long timeOfDay = player.getWorld().getTime() % 24000;
+            return (int) ((timeOfDay + 6000) / 1000) % 24;
+        }
     }
 
     @Override

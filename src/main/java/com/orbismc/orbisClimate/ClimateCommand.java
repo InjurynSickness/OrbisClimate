@@ -2,7 +2,10 @@ package com.orbismc.orbisClimate;
 
 import com.orbismc.orbisClimate.commands.SubCommand;
 import com.orbismc.orbisClimate.commands.subcommands.*;
-import org.bukkit.ChatColor;
+import com.orbismc.orbisClimate.utils.MessageUtils;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.Style;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -38,7 +41,7 @@ public class ClimateCommand implements CommandExecutor, TabCompleter {
         subCommands.put("perf", new PerformanceCommand(plugin)); // Alias
         subCommands.put("regenerate", new RegenerateCommand(plugin));
         subCommands.put("debug", new DebugCommand(plugin));
-        subCommands.put("snow", new SnowClearCommand(plugin)); // NEW: Snow clear command
+        subCommands.put("snow", new SnowClearCommand(plugin));
     }
 
     @Override
@@ -52,13 +55,13 @@ public class ClimateCommand implements CommandExecutor, TabCompleter {
         SubCommand subCommand = subCommands.get(subCommandName);
 
         if (subCommand == null) {
-            sender.sendMessage(ChatColor.RED + "Unknown command! Use /climate for help.");
+            MessageUtils.send(sender, MessageUtils.error("Unknown command! Use /climate for help."));
             return true;
         }
 
         // Check permissions
         if (!subCommand.hasPermission(sender)) {
-            sender.sendMessage(ChatColor.RED + "You don't have permission to use this command!");
+            MessageUtils.send(sender, MessageUtils.error("You don't have permission to use this command!"));
             return true;
         }
 
@@ -68,37 +71,74 @@ public class ClimateCommand implements CommandExecutor, TabCompleter {
     }
 
     private void showMainHelp(CommandSender sender) {
-        sender.sendMessage(ChatColor.GOLD + "=== OrbisClimate Commands ===");
+        // Enhanced main help with Adventure components
+        MessageUtils.send(sender, MessageUtils.header("OrbisClimate Commands"));
 
-        // Player commands
-        sender.sendMessage(ChatColor.GREEN + "Player Commands:");
-        sender.sendMessage(ChatColor.YELLOW + "/climate info " + ChatColor.WHITE + "- Show climate information");
-        sender.sendMessage(ChatColor.YELLOW + "/climate forecast " + ChatColor.WHITE + "- Show weather forecast");
-        sender.sendMessage(ChatColor.YELLOW + "/climate temperature " + ChatColor.WHITE + "- Show temperature info");
-        sender.sendMessage(ChatColor.YELLOW + "/climate zone " + ChatColor.WHITE + "- Show climate zone info");
-        sender.sendMessage(ChatColor.YELLOW + "/climate toggle [on|off] " + ChatColor.WHITE + "- Toggle particles");
-        sender.sendMessage(ChatColor.YELLOW + "/climate status " + ChatColor.WHITE + "- Show integration status");
+        // Player commands section
+        MessageUtils.send(sender, Component.text(""));
+        MessageUtils.send(sender, MessageUtils.text("Player Commands:", MessageUtils.SUCCESS, 
+            Style.style(TextDecoration.BOLD)));
 
-        // Admin commands (if they have permission)
+        showCommandHelp(sender, "info", "Show climate information", "/climate info");
+        showCommandHelp(sender, "forecast", "Show weather forecast", "/climate forecast [detailed]");
+        showCommandHelp(sender, "temperature", "Show temperature info", "/climate temperature");
+        showCommandHelp(sender, "zone", "Show climate zone info", "/climate zone");
+        showCommandHelp(sender, "toggle", "Toggle particles", "/climate toggle [on|off]");
+        showCommandHelp(sender, "status", "Show integration status", "/climate status");
+
+        // Admin commands section (if they have permission)
         if (sender.hasPermission("orbisclimate.admin")) {
-            sender.sendMessage(ChatColor.RED + "Admin Commands:");
-            sender.sendMessage(ChatColor.YELLOW + "/climate reload " + ChatColor.WHITE + "- Reload configuration");
-            sender.sendMessage(ChatColor.YELLOW + "/climate weather " + ChatColor.WHITE + "- Weather control");
-            sender.sendMessage(ChatColor.YELLOW + "/climate performance " + ChatColor.WHITE + "- Performance monitoring");
-            sender.sendMessage(ChatColor.YELLOW + "/climate regenerate " + ChatColor.WHITE + "- Regenerate forecast");
-            sender.sendMessage(ChatColor.YELLOW + "/climate debug " + ChatColor.WHITE + "- Debug information");
-            sender.sendMessage(ChatColor.YELLOW + "/climate snow " + ChatColor.WHITE + "- Clear snow blocks"); // NEW
+            MessageUtils.send(sender, Component.text(""));
+            MessageUtils.send(sender, MessageUtils.text("Admin Commands:", MessageUtils.ERROR, 
+                Style.style(TextDecoration.BOLD)));
+
+            showCommandHelp(sender, "reload", "Reload configuration", "/climate reload");
+            showCommandHelp(sender, "weather", "Weather control", "/climate weather <set|clear|info>");
+            showCommandHelp(sender, "performance", "Performance monitoring", "/climate performance <report|mode>");
+            showCommandHelp(sender, "regenerate", "Regenerate forecast", "/climate regenerate");
+            showCommandHelp(sender, "debug", "Debug information", "/climate debug");
+            showCommandHelp(sender, "snow", "Clear snow blocks", "/climate snow <area|world|radius>");
         }
+
+        // Footer with tips
+        MessageUtils.send(sender, Component.text(""));
+        Component tipLine = Component.text()
+                .append(MessageUtils.text("💡 Tip: ", MessageUtils.ACCENT))
+                .append(MessageUtils.text("Hover over commands for more details, click to execute!", MessageUtils.MUTED))
+                .build();
+        MessageUtils.send(sender, tipLine);
+
+        // Show plugin status
+        if (plugin.getPerformanceMonitor() != null && plugin.getPerformanceMonitor().isPerformanceMode()) {
+            Component perfWarning = Component.text()
+                    .append(Component.text("⚠ ", MessageUtils.WARNING))
+                    .append(MessageUtils.text("Server is in performance mode - some effects may be reduced", 
+                        MessageUtils.WARNING))
+                    .build();
+            MessageUtils.send(sender, perfWarning);
+        }
+    }
+
+    private void showCommandHelp(CommandSender sender, String command, String description, String usage) {
+        Component commandLine = Component.text()
+                .append(MessageUtils.clickableCommand("/" + command, usage, MessageUtils.ACCENT))
+                .append(MessageUtils.text(" - ", MessageUtils.MUTED))
+                .append(MessageUtils.hoverable(description, 
+                    "Usage: " + usage + "\n\nClick to execute this command!", 
+                    MessageUtils.INFO))
+                .build();
+        MessageUtils.send(sender, commandLine);
     }
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            // Return available subcommands based on permissions
+            // Return available subcommands based on permissions with enhanced filtering
             return subCommands.entrySet().stream()
                     .filter(entry -> entry.getValue().hasPermission(sender))
                     .map(Map.Entry::getKey)
                     .filter(cmd -> cmd.toLowerCase().startsWith(args[0].toLowerCase()))
+                    .sorted() // Sort alphabetically
                     .collect(Collectors.toList());
         } else if (args.length > 1) {
             // Delegate to subcommand tab completion
@@ -107,10 +147,21 @@ public class ClimateCommand implements CommandExecutor, TabCompleter {
 
             if (subCommand != null && subCommand.hasPermission(sender)) {
                 String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
-                return subCommand.getTabCompletions(sender, subArgs);
+                List<String> completions = subCommand.getTabCompletions(sender, subArgs);
+                
+                // Filter completions based on current input
+                if (completions != null && !completions.isEmpty() && subArgs.length > 0) {
+                    String currentArg = subArgs[subArgs.length - 1].toLowerCase();
+                    return completions.stream()
+                            .filter(completion -> completion.toLowerCase().startsWith(currentArg))
+                            .sorted()
+                            .collect(Collectors.toList());
+                }
+                
+                return completions;
             }
         }
 
-        return null;
+        return Collections.emptyList();
     }
 }

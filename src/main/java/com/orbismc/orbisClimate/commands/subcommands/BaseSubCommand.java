@@ -2,6 +2,7 @@ package com.orbismc.orbisClimate.commands.subcommands;
 
 import com.orbismc.orbisClimate.OrbisClimate;
 import com.orbismc.orbisClimate.commands.SubCommand;
+import com.orbismc.orbisClimate.utils.MessageUtils;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
@@ -28,7 +29,7 @@ public abstract class BaseSubCommand implements SubCommand {
     @Override
     public boolean execute(CommandSender sender, String[] args) {
         if (requiresPlayer && !(sender instanceof Player)) {
-            sender.sendMessage("§cThis command can only be used by players!");
+            MessageUtils.send(sender, MessageUtils.error("This command can only be used by players!"));
             return true;
         }
 
